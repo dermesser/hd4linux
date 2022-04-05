@@ -1,10 +1,99 @@
 // OAuth2 flow for hidrive installed application.
 
+// TODO:
+// Make defaults configurable
+// Use better error handling (not string-typed)
+
+use anyhow::{self, Context};
 use log::{error, info, warn};
 
-
 use hyper::{server, service};
+use json::JsonValue;
+use tokio::fs;
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
+
+/// Returns client_id and client_secret.
+pub async fn load_client_secret_from_json(
+    p: impl AsRef<std::path::Path>,
+) -> anyhow::Result<(String, String)> {
+    let mut s = String::new();
+    fs::OpenOptions::new()
+        .read(true)
+        .open(p)
+        .await?
+        .read_to_string(&mut s)
+        .await?;
+    let j = json::parse(&s)?;
+    let (ci, cs): (String, String) = match j {
+        JsonValue::Object(o) => (
+            o["client_id"].as_str().unwrap_or("").into(),
+            o["client_secret"].as_str().unwrap_or("").into(),
+        ),
+        _ => {
+            return Err(anyhow::Error::msg(format!(
+                "Expected object; client credential file is {}",
+                s
+            )))
+        }
+    };
+    if ci.is_empty() || cs.is_empty() {
+        Err(anyhow::Error::msg("client_id or client_secret not set!"))
+    } else {
+        Ok((ci, cs))
+    }
+}
+
+/// A JSON object looking like this:
+/// {
+///   "refresh_token": "rt-abcdeabcde",
+///   "expires_in": 3600,
+///   "userid": "12345.12345.12345",
+///   "access_token": "ssklnLKwerlnc9sal",
+///   "alias": "lebohd0",
+///   "token_type": "Bearer",
+///   "scope": "ro,user"
+/// }
+pub struct Credentials(JsonValue);
+
+impl Credentials {
+    /// Returns None only if the JSON object is malformed.
+    pub fn refresh_token(&self) -> Option<String> {
+        self.access_field("refresh_token")
+    }
+
+    pub fn access_token(&self) -> Option<String> {
+        self.access_field("access_token")
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.access_field("alias")
+    }
+
+    fn access_field(&self, f: &str) -> Option<String> {
+        match &self.0 {
+            &JsonValue::Object(ref o) => Some(o[f].as_str().unwrap_or("").into()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LogInState {
+    Start,          // Next: WaitingForCode or ReceivedCode
+    WaitingForCode, // Next: ReceivedCode
+    ReceivedCode,   // Next: ExchangingCode
+    ExchangingCode, // Next: Complete
+    Complete,
+
+    Error,
+}
+
+impl Default for LogInState {
+    fn default() -> LogInState {
+        LogInState::Start
+    }
+}
 
 // First time login to HiDrive.
 #[derive(Debug, Clone, Default)]
@@ -14,6 +103,7 @@ pub struct LogInFlow {
     authorization_url: String,
     token_url: String,
 
+    state: LogInState,
     authz_code: Option<String>,
 }
 
@@ -27,6 +117,14 @@ const DEFAULT_BODY_RESPONSE: &'static str = r"
 hd_api 0.1
 </body>
 </html>";
+const DEFAULT_ERROR_RESPONSE: &'static str = r"
+<html>
+<head><title>Authorization failed</title></head>
+<body>Something went wrong; please return to the application
+<hr />
+hd_api 0.1
+</body>
+</html>";
 
 impl LogInFlow {
     pub fn default_instance(client_id: String, client_secret: String) -> LogInFlow {
@@ -35,7 +133,8 @@ impl LogInFlow {
             client_secret: client_secret,
             authorization_url: DEFAULT_AUTHORIZATION_URL.into(),
             token_url: DEFAULT_TOKEN_URL.into(),
-            authz_code: None,
+
+            ..Default::default()
         }
     }
 
@@ -66,18 +165,59 @@ impl LogInFlow {
     /// If the authorization code was received out-of-band, it can be supplied here.
     pub fn supply_authorization_code(&mut self, code: String) {
         self.authz_code = Some(code);
+        self.state = LogInState::ReceivedCode;
     }
 
     /// If your application is configured with a redirect-to-localhost scheme, this will
     /// start a web server on port 8087 (TO DO: make this adjustable) and wait for the redirect
     /// request.
-    pub async fn wait_for_redirect(&mut self) -> Result<(), String> {
+    pub async fn wait_for_redirect(&mut self) -> anyhow::Result<()> {
         let rdr = RedirectHandlingServer::new();
         match rdr.start_and_wait_for_code().await {
-            LogInResult::Ok { code } => self.authz_code = Some(code),
-            LogInResult::Err { err } => return Err(err),
+            LogInResult::Ok { code } => {
+                self.authz_code = Some(code);
+                self.state = LogInState::ReceivedCode;
+            }
+            LogInResult::Err { err } => {
+                self.state = LogInState::Error;
+                return Err(
+                    anyhow::Error::msg(err).context("Received error from redirect catching server")
+                );
+            }
         }
         Ok(())
+    }
+
+    /// Exchange the received code for access tokens.
+    pub async fn exchange_code(&mut self) -> anyhow::Result<Credentials> {
+        if self.state != LogInState::ReceivedCode {
+            return Err(anyhow::Error::msg(format!(
+                "LogInFlow: wrong state {:?}: no code obtained yet!",
+                self.state
+            )));
+        }
+        let code = match self.authz_code {
+            None => return Err(anyhow::Error::msg("No code obtained yet!")),
+            Some(ref c) => c,
+        };
+        let url = format!(
+            "{}?client_id={}&client_secret={}&grant_type=authorization_code&code={}",
+            self.token_url, self.client_id, self.client_secret, code
+        );
+        self.state = LogInState::ExchangingCode;
+        let cl = reqwest::Client::new();
+        let req = cl
+            .post(url)
+            .build()
+            .map_err(|e| anyhow::Error::new(e).context("Couldn't build token exchange request."))?;
+        let resp = match cl.execute(req).await {
+            Err(e) => return Err(anyhow::Error::new(e).context("Couldn't exchange code for token")),
+            Ok(resp) => resp,
+        };
+        let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
+        let token = json::parse(&body)?;
+        self.state = LogInState::Complete;
+        Ok(Credentials(token))
     }
 }
 
@@ -134,14 +274,11 @@ impl RedirectHandlingServer {
         rq: hyper::Request<hyper::Body>,
         result: mpsc::Sender<LogInResult>,
         shutdown: mpsc::Sender<()>,
-    ) -> Result<hyper::Response<hyper::Body>, hyper::http::Error> {
+    ) -> anyhow::Result<hyper::Response<hyper::Body>> {
         shutdown.send(()).await.expect("shutdown: mpsc error");
         info!(target: "hd_api", "Received OAuth callback");
-        let response = hyper::Response::builder()
-            .status(hyper::StatusCode::OK)
-            .body(DEFAULT_BODY_RESPONSE.into());
-        let uri = rq.uri();
-        let q = uri.query();
+        let response_builder = hyper::Response::builder().status(hyper::StatusCode::OK);
+        let q = rq.uri().query();
         let q = match q {
             None => {
                 result
@@ -150,7 +287,10 @@ impl RedirectHandlingServer {
                     })
                     .await
                     .expect("result: mpsc error");
-                return response;
+                return response_builder
+                    .body(DEFAULT_ERROR_RESPONSE.into())
+                    .map_err(anyhow::Error::new)
+                    .context("Couldn't create response to callback request");
             }
             Some(q) => q,
         };
@@ -175,8 +315,15 @@ impl RedirectHandlingServer {
                 })
                 .await
                 .expect("mpsc send error");
+            return response_builder
+                .body(DEFAULT_ERROR_RESPONSE.into())
+                .map_err(anyhow::Error::new)
+                .context("couldn't create response to callback request");
         }
-        response
+        response_builder
+            .body(DEFAULT_BODY_RESPONSE.into())
+            .map_err(anyhow::Error::new)
+            .context("couldn't create response to callback request")
     }
 }
 
@@ -213,8 +360,23 @@ mod tests {
 
     #[tokio::test]
     async fn manual_test() {
+        // Enable this to check out the returned page manually.
         return;
         let rdr = oauth2::RedirectHandlingServer::new();
         println!("{:?}", rdr.start_and_wait_for_code().await);
+    }
+
+    #[tokio::test]
+    async fn manual_exchange_test() {
+        return;
+        let (ci, cs) = oauth2::load_client_secret_from_json("clientsecret.json")
+            .await
+            .unwrap();
+        let mut lif = oauth2::LogInFlow::default_instance(ci, cs);
+        println!("Go to {}", lif.get_authorization_url("ro".into()));
+        lif.wait_for_redirect().await.unwrap();
+        println!("Received code! Exchanging...");
+        let tok = lif.exchange_code().await.unwrap();
+        println!("Got code: {}", tok.0.pretty(2));
     }
 }
