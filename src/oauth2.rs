@@ -3,6 +3,7 @@
 // TODO:
 // Make defaults configurable
 // Use better error handling (not string-typed)
+// Implement refreshing tokens
 
 use anyhow::{self, Context};
 use log::{error, info, warn};
