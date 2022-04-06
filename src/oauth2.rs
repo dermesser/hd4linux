@@ -10,8 +10,9 @@ use log::{error, info, warn};
 
 use hyper::{server, service};
 use json::JsonValue;
+use time::ext::NumericalDuration;
 use tokio::fs;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 /// Returns client_id and client_secret.
@@ -45,6 +46,27 @@ pub async fn load_client_secret_from_json(
     }
 }
 
+pub async fn load_credentials_from_file(
+    p: impl AsRef<std::path::Path>,
+) -> anyhow::Result<Credentials> {
+    let mut s = String::new();
+    fs::OpenOptions::new()
+        .read(true)
+        .open(p)
+        .await?
+        .read_to_string(&mut s)
+        .await?;
+    let j = json::parse(&s)?;
+    if let JsonValue::Object(ref o) = j {
+        if o["refresh_token"].as_str().is_some() {
+            return Ok(Credentials(j));
+        }
+    }
+    Err(anyhow::Error::msg(
+        "load_credentials_from_file: content doesn't look like valid credentials!",
+    ))
+}
+
 /// A JSON object looking like this:
 /// {
 ///   "refresh_token": "rt-abcdeabcde",
@@ -71,10 +93,137 @@ impl Credentials {
         self.access_field("alias")
     }
 
+    pub fn expires_in(&self) -> Option<usize> {
+        match &self.0 {
+            &JsonValue::Object(ref o) => o["expires_in"].as_usize(),
+            _ => None,
+        }
+    }
+
     fn access_field(&self, f: &str) -> Option<String> {
         match &self.0 {
             &JsonValue::Object(ref o) => Some(o[f].as_str().unwrap_or("").into()),
             _ => None,
+        }
+    }
+
+    /// Save credentials to file.
+    async fn save(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let c = self.0.pretty(2);
+        fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(f)
+            .await?
+            .write_all(c.as_bytes())
+            .await
+            .map_err(|e| e.into())
+    }
+
+    /// Load credentials from file.
+    async fn load(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<Credentials> {
+        let mut s = String::new();
+        fs::OpenOptions::new()
+            .read(true)
+            .open(f)
+            .await?
+            .read_to_string(&mut s)
+            .await?;
+        let j = json::parse(&s)?;
+        Ok(Credentials(j))
+    }
+}
+
+pub struct Authorizer {
+    cred: Credentials,
+    client_id: String,
+    client_secret: String,
+
+    http_cl: reqwest::Client,
+
+    token_url: String,
+    current_token: Option<(String, time::Instant)>,
+}
+
+impl Authorizer {
+    pub fn new(c: Credentials, client_id: String, client_secret: String) -> Authorizer {
+        Authorizer {
+            cred: c,
+            client_id: client_id,
+            client_secret: client_secret,
+            http_cl: reqwest::Client::new(),
+            token_url: DEFAULT_TOKEN_URL.into(),
+            current_token: None,
+        }
+    }
+
+    pub fn new_with_client(
+        c: Credentials,
+        client_id: String,
+        client_secret: String,
+        cl: reqwest::Client,
+    ) -> Authorizer {
+        Authorizer {
+            cred: c,
+            client_id: client_id,
+            client_secret: client_secret,
+            http_cl: cl,
+            token_url: DEFAULT_TOKEN_URL.into(),
+            current_token: None,
+        }
+    }
+
+    /// Returns a Bearer token for subsequent use.
+    pub async fn token(&mut self) -> anyhow::Result<String> {
+        match self.current_token {
+            None => (),
+            Some((ref t, ref c)) => {
+                // Token available and not expired
+                if c.elapsed() < ((self.cred.expires_in().unwrap_or(1800) - 30) as f64).seconds() {
+                    return Ok(t.clone());
+                }
+            }
+        };
+
+        // No current token available, need to refresh.
+        self.current_token = Some(self.refresh().await?);
+        Ok(self.current_token.as_ref().unwrap().0.clone())
+    }
+
+    async fn refresh(&mut self) -> anyhow::Result<(String, time::Instant)> {
+        let t = time::Instant::now();
+        let refresh_token = self.cred.refresh_token();
+        if refresh_token.is_none() {
+            return Err(anyhow::Error::msg(
+                "Authorizer: No refresh token found in credentials!",
+            ));
+        }
+        let url = format!(
+            "{}?client_id={}&client_secret={}&grant_type=refresh_token&refresh_token={}",
+            self.token_url,
+            self.client_id,
+            self.client_secret,
+            refresh_token.unwrap()
+        );
+        let cl = reqwest::Client::new();
+        let req = cl
+            .post(url)
+            .build()
+            .map_err(|e| anyhow::Error::new(e).context("Couldn't build token exchange request."))?;
+        let resp = match cl.execute(req).await {
+            Err(e) => return Err(anyhow::Error::new(e).context("Couldn't exchange code for token")),
+            Ok(resp) => resp,
+        };
+        let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
+        let token = json::parse(&body)?;
+        self.cred = Credentials(token);
+        if let Some(at) = self.cred.access_token() {
+            Ok((at, t))
+        } else {
+            Err(anyhow::Error::msg(
+                "Authorizer: no access token found in API response!",
+            ))
         }
     }
 }
@@ -96,7 +245,9 @@ impl Default for LogInState {
     }
 }
 
-// First time login to HiDrive.
+/// LogInFlow implements the process authorizing us to access a user's HiDrive.
+/// Once the credentials have been obtained, they should be saved in a safe place and subsequently
+/// given to an `Authorizer` which will produce access tokens from it.
 #[derive(Debug, Clone, Default)]
 pub struct LogInFlow {
     client_id: String,
@@ -379,5 +530,19 @@ mod tests {
         println!("Received code! Exchanging...");
         let tok = lif.exchange_code().await.unwrap();
         println!("Got code: {}", tok.0.pretty(2));
+    }
+
+    #[tokio::test]
+    async fn manual_refresh_test() {
+        //return;
+        let (ci, cs) = oauth2::load_client_secret_from_json("clientsecret.json")
+            .await
+            .unwrap();
+        let cred = oauth2::load_credentials_from_file("credentials.json")
+            .await
+            .unwrap();
+
+        let mut authz = oauth2::Authorizer::new(cred, ci, cs);
+        println!("{:?}", authz.token().await);
     }
 }
