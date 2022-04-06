@@ -2,69 +2,39 @@
 
 // TODO:
 // Make defaults configurable
-// Use better error handling (not string-typed)
-// Implement refreshing tokens
+// Implement revocation
 
 use anyhow::{self, Context};
 use log::{error, info, warn};
 
 use hyper::{server, service};
-use json::JsonValue;
+use serde_json::{from_str, to_string_pretty};
+use serde::{Serialize, Deserialize};
 use time::ext::NumericalDuration;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
-/// Returns client_id and client_secret.
-pub async fn load_client_secret_from_json(
-    p: impl AsRef<std::path::Path>,
-) -> anyhow::Result<(String, String)> {
-    let mut s = String::new();
-    fs::OpenOptions::new()
-        .read(true)
-        .open(p)
-        .await?
-        .read_to_string(&mut s)
-        .await?;
-    let j = json::parse(&s)?;
-    let (ci, cs): (String, String) = match j {
-        JsonValue::Object(o) => (
-            o["client_id"].as_str().unwrap_or("").into(),
-            o["client_secret"].as_str().unwrap_or("").into(),
-        ),
-        _ => {
-            return Err(anyhow::Error::msg(format!(
-                "Expected object; client credential file is {}",
-                s
-            )))
-        }
-    };
-    if ci.is_empty() || cs.is_empty() {
-        Err(anyhow::Error::msg("client_id or client_secret not set!"))
-    } else {
-        Ok((ci, cs))
-    }
+#[derive(Deserialize)]
+pub struct ClientSecret {
+    client_secret: String,
+    client_id: String,
 }
 
-pub async fn load_credentials_from_file(
-    p: impl AsRef<std::path::Path>,
-) -> anyhow::Result<Credentials> {
-    let mut s = String::new();
-    fs::OpenOptions::new()
-        .read(true)
-        .open(p)
-        .await?
-        .read_to_string(&mut s)
-        .await?;
-    let j = json::parse(&s)?;
-    if let JsonValue::Object(ref o) = j {
-        if o["refresh_token"].as_str().is_some() {
-            return Ok(Credentials(j));
-        }
+impl ClientSecret {
+    /// Returns client_id and client_secret.
+    pub async fn load(
+        p: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<ClientSecret> {
+        let mut s = String::new();
+        fs::OpenOptions::new()
+            .read(true)
+            .open(p.as_ref())
+            .await?
+            .read_to_string(&mut s)
+            .await?;
+        from_str(&s).context("load_client_secret_from_json: error parsing client secret")
     }
-    Err(anyhow::Error::msg(
-        "load_credentials_from_file: content doesn't look like valid credentials!",
-    ))
 }
 
 /// A JSON object looking like this:
@@ -77,52 +47,34 @@ pub async fn load_credentials_from_file(
 ///   "token_type": "Bearer",
 ///   "scope": "ro,user"
 /// }
-pub struct Credentials(JsonValue);
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Credentials {
+    refresh_token: String,
+    expires_in: usize,
+    userid: String,
+    access_token: String,
+    alias: String,
+    token_type: String,
+    scope: Option<String>,
+}
 
 impl Credentials {
-    /// Returns None only if the JSON object is malformed.
-    pub fn refresh_token(&self) -> Option<String> {
-        self.access_field("refresh_token")
-    }
-
-    pub fn access_token(&self) -> Option<String> {
-        self.access_field("access_token")
-    }
-
-    pub fn name(&self) -> Option<String> {
-        self.access_field("alias")
-    }
-
-    pub fn expires_in(&self) -> Option<usize> {
-        match &self.0 {
-            &JsonValue::Object(ref o) => o["expires_in"].as_usize(),
-            _ => None,
-        }
-    }
-
-    fn access_field(&self, f: &str) -> Option<String> {
-        match &self.0 {
-            &JsonValue::Object(ref o) => Some(o[f].as_str().unwrap_or("").into()),
-            _ => None,
-        }
-    }
-
     /// Save credentials to file.
-    async fn save(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
-        let c = self.0.pretty(2);
+    pub async fn save(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let s = to_string_pretty(self)?;
         fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
             .open(f)
             .await?
-            .write_all(c.as_bytes())
+            .write_all(s.as_bytes())
             .await
-            .map_err(|e| e.into())
+            .context("Credentials::save: error writing to file")
     }
 
     /// Load credentials from file.
-    async fn load(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<Credentials> {
+    pub async fn load(f: impl AsRef<std::path::Path>) -> anyhow::Result<Credentials> {
         let mut s = String::new();
         fs::OpenOptions::new()
             .read(true)
@@ -130,8 +82,7 @@ impl Credentials {
             .await?
             .read_to_string(&mut s)
             .await?;
-        let j = json::parse(&s)?;
-        Ok(Credentials(j))
+        from_str(&s).context("Credentials::load: error loading credentials from file")
     }
 }
 
@@ -180,7 +131,7 @@ impl Authorizer {
             None => (),
             Some((ref t, ref c)) => {
                 // Token available and not expired
-                if c.elapsed() < ((self.cred.expires_in().unwrap_or(1800) - 30) as f64).seconds() {
+                if c.elapsed() < ((self.cred.expires_in - 30) as f64).seconds() {
                     return Ok(t.clone());
                 }
             }
@@ -193,38 +144,29 @@ impl Authorizer {
 
     async fn refresh(&mut self) -> anyhow::Result<(String, time::Instant)> {
         let t = time::Instant::now();
-        let refresh_token = self.cred.refresh_token();
-        if refresh_token.is_none() {
-            return Err(anyhow::Error::msg(
-                "Authorizer: No refresh token found in credentials!",
-            ));
-        }
         let url = format!(
             "{}?client_id={}&client_secret={}&grant_type=refresh_token&refresh_token={}",
             self.token_url,
             self.client_id,
             self.client_secret,
-            refresh_token.unwrap()
+            self.cred.refresh_token
         );
-        let cl = reqwest::Client::new();
-        let req = cl
+        let req = self.http_cl
             .post(url)
             .build()
             .map_err(|e| anyhow::Error::new(e).context("Couldn't build token exchange request."))?;
-        let resp = match cl.execute(req).await {
+        let resp = match self.http_cl.execute(req).await {
             Err(e) => return Err(anyhow::Error::new(e).context("Couldn't exchange code for token")),
             Ok(resp) => resp,
         };
         let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
-        let token = json::parse(&body)?;
-        self.cred = Credentials(token);
-        if let Some(at) = self.cred.access_token() {
-            Ok((at, t))
-        } else {
-            Err(anyhow::Error::msg(
-                "Authorizer: no access token found in API response!",
-            ))
-        }
+        self.cred = from_str(&body)?;
+        Ok((self.cred.access_token.clone(), t))
+    }
+
+    /// Set authorization headers on a request builder.
+    pub async fn authorize(&mut self, rqb: reqwest::RequestBuilder) -> anyhow::Result<reqwest::RequestBuilder> {
+        Ok(rqb.header("Authorization", format!("Bearer {}", self.token().await?)))
     }
 }
 
@@ -340,7 +282,8 @@ impl LogInFlow {
         Ok(())
     }
 
-    /// Exchange the received code for access tokens.
+    /// Call this to exchange the received code for access tokens.
+    /// Save the returned credentials somewhere for use in `Authorizer`.
     pub async fn exchange_code(&mut self) -> anyhow::Result<Credentials> {
         if self.state != LogInState::ReceivedCode {
             return Err(anyhow::Error::msg(format!(
@@ -367,9 +310,9 @@ impl LogInFlow {
             Ok(resp) => resp,
         };
         let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
-        let token = json::parse(&body)?;
+        let token = from_str(&body)?;
         self.state = LogInState::Complete;
-        Ok(Credentials(token))
+        Ok(token)
     }
 }
 
@@ -521,28 +464,29 @@ mod tests {
     #[tokio::test]
     async fn manual_exchange_test() {
         return;
-        let (ci, cs) = oauth2::load_client_secret_from_json("clientsecret.json")
+        let cs = oauth2::ClientSecret::load("clientsecret.json")
             .await
             .unwrap();
-        let mut lif = oauth2::LogInFlow::default_instance(ci, cs);
+        let mut lif = oauth2::LogInFlow::default_instance(cs.client_id, cs.client_secret);
         println!("Go to {}", lif.get_authorization_url("ro".into()));
         lif.wait_for_redirect().await.unwrap();
         println!("Received code! Exchanging...");
         let tok = lif.exchange_code().await.unwrap();
-        println!("Got code: {}", tok.0.pretty(2));
+        println!("Got code: {}", serde_json::to_string_pretty(&tok).unwrap());
     }
 
     #[tokio::test]
     async fn manual_refresh_test() {
-        //return;
-        let (ci, cs) = oauth2::load_client_secret_from_json("clientsecret.json")
+        return;
+        let cs = oauth2::ClientSecret::load("clientsecret.json")
             .await
             .unwrap();
-        let cred = oauth2::load_credentials_from_file("credentials.json")
+        let cred = oauth2::Credentials::load("credentials.json")
             .await
             .unwrap();
 
-        let mut authz = oauth2::Authorizer::new(cred, ci, cs);
-        println!("{:?}", authz.token().await);
+        let mut authz = oauth2::Authorizer::new(cred, cs.client_id, cs.client_secret);
+        println!("first: {:?}", authz.token().await);
+        println!("repeat: {:?}", authz.token().await);
     }
 }
