@@ -4,17 +4,20 @@
 // Make defaults configurable
 // Implement revocation
 
+use std::fmt::{self, Display, Formatter};
+
 use anyhow::{self, Context};
 use log::{error, info, warn};
 
 use hyper::{server, service};
+use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string_pretty};
-use serde::{Serialize, Deserialize};
 use time::ext::NumericalDuration;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+/// An application's client secret.
 #[derive(Deserialize)]
 pub struct ClientSecret {
     client_secret: String,
@@ -22,10 +25,9 @@ pub struct ClientSecret {
 }
 
 impl ClientSecret {
-    /// Returns client_id and client_secret.
-    pub async fn load(
-        p: impl AsRef<std::path::Path>,
-    ) -> anyhow::Result<ClientSecret> {
+    /// Returns client_id and client_secret. The file must contain a JSON object
+    /// with at least the fields client_id and client_secret of type string.
+    pub async fn load(p: impl AsRef<std::path::Path>) -> anyhow::Result<ClientSecret> {
         let mut s = String::new();
         fs::OpenOptions::new()
             .read(true)
@@ -146,15 +148,12 @@ impl Authorizer {
         let t = time::Instant::now();
         let url = format!(
             "{}?client_id={}&client_secret={}&grant_type=refresh_token&refresh_token={}",
-            self.token_url,
-            self.client_id,
-            self.client_secret,
-            self.cred.refresh_token
+            self.token_url, self.client_id, self.client_secret, self.cred.refresh_token
         );
-        let req = self.http_cl
-            .post(url)
-            .build()
-            .map_err(|e| anyhow::Error::new(e).context("Couldn't build token exchange request."))?;
+        let req =
+            self.http_cl.post(url).build().map_err(|e| {
+                anyhow::Error::new(e).context("Couldn't build token exchange request.")
+            })?;
         let resp = match self.http_cl.execute(req).await {
             Err(e) => return Err(anyhow::Error::new(e).context("Couldn't exchange code for token")),
             Ok(resp) => resp,
@@ -165,7 +164,10 @@ impl Authorizer {
     }
 
     /// Set authorization headers on a request builder.
-    pub async fn authorize(&mut self, rqb: reqwest::RequestBuilder) -> anyhow::Result<reqwest::RequestBuilder> {
+    pub async fn authorize(
+        &mut self,
+        rqb: reqwest::RequestBuilder,
+    ) -> anyhow::Result<reqwest::RequestBuilder> {
         Ok(rqb.header("Authorization", format!("Bearer {}", self.token().await?)))
     }
 }
@@ -201,6 +203,72 @@ pub struct LogInFlow {
     authz_code: Option<String>,
 }
 
+#[derive(Debug)]
+pub enum Role {
+    User,
+    Admin,
+    Owner,
+}
+#[derive(Debug)]
+pub enum Access {
+    Ro,
+    Rw,
+}
+#[derive(Debug)]
+pub struct Scope {
+    role: Role,
+    access: Access,
+}
+
+impl Display for Role {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.write_str(match self {
+            Role::User => "user",
+            Role::Admin => "admin",
+            Role::Owner => "owner",
+        })
+    }
+}
+impl Display for Access {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.write_str(match self {
+            Access::Ro => "ro",
+            Access::Rw => "rw",
+        })
+    }
+}
+impl Display for Scope {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.role.fmt(f)?;
+        f.write_str(",")?;
+        self.access.fmt(f)
+    }
+}
+
+#[derive(Debug)]
+pub enum Lang {
+    De,
+    En,
+    Es,
+    Fr,
+    Nl,
+    Pt
+}
+
+impl Display for Lang {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.write_str(match self {
+            Lang::De => "de",
+            Lang::En => "en",
+            Lang::Es => "es",
+            Lang::Fr => "fr",
+            Lang::Nl => "nl",
+            Lang::Pt => "pt",
+        })
+    }
+}
+
+// TODO: These could be read from the client secret file.
 const DEFAULT_AUTHORIZATION_URL: &'static str = "https://my.hidrive.com/client/authorize";
 const DEFAULT_TOKEN_URL: &'static str = "https://my.hidrive.com/oauth2/token";
 const DEFAULT_BODY_RESPONSE: &'static str = r"
@@ -249,7 +317,7 @@ impl LogInFlow {
     }
 
     /// Obtain URL for user to navigate to in order to authorize us.
-    pub fn get_authorization_url(&self, scope: String) -> String {
+    pub fn get_authorization_url(&self, scope: Scope) -> String {
         format!(
             "{}?client_id={}&response_type=code&scope={}",
             self.authorization_url, self.client_id, scope
@@ -481,9 +549,7 @@ mod tests {
         let cs = oauth2::ClientSecret::load("clientsecret.json")
             .await
             .unwrap();
-        let cred = oauth2::Credentials::load("credentials.json")
-            .await
-            .unwrap();
+        let cred = oauth2::Credentials::load("credentials.json").await.unwrap();
 
         let mut authz = oauth2::Authorizer::new(cred, cs.client_id, cs.client_secret);
         println!("first: {:?}", authz.token().await);
