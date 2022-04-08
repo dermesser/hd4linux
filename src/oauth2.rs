@@ -564,7 +564,7 @@ mod tests {
         let cs = oauth2::ClientSecret::load("clientsecret.json")
             .await
             .unwrap();
-        let mut lif = oauth2::LogInFlow::default_instance(cs.client_id, cs.client_secret);
+        let mut lif = oauth2::LogInFlow::default_instance(cs);
         println!(
             "Go to {}",
             lif.get_authorization_url(oauth2::Scope {
@@ -586,7 +586,7 @@ mod tests {
             .unwrap();
         let cred = oauth2::Credentials::load("credentials.json").await.unwrap();
 
-        let mut authz = oauth2::Authorizer::new(cred, cs.client_id, cs.client_secret);
+        let mut authz = oauth2::Authorizer::new(cred, cs);
         println!("first: {:?}", authz.token().await);
         println!("repeat: {:?}", authz.token().await);
     }
