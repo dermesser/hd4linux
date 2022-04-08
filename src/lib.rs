@@ -1,4 +1,6 @@
+pub mod hidrive;
 pub mod oauth2;
+pub mod types;
 
 #[cfg(test)]
 mod tests {

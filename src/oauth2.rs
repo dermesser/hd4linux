@@ -17,7 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 /// An application's client secret.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default, Clone, Debug)]
 pub struct ClientSecret {
     client_secret: String,
     client_id: String,
@@ -89,8 +89,7 @@ impl Credentials {
 
 pub struct Authorizer {
     cred: Credentials,
-    client_id: String,
-    client_secret: String,
+    cs: ClientSecret,
 
     http_cl: reqwest::Client,
 
@@ -99,27 +98,21 @@ pub struct Authorizer {
 }
 
 impl Authorizer {
-    pub fn new(c: Credentials, client_id: String, client_secret: String) -> Authorizer {
+    /// Create a new Authorizer instance.
+    pub fn new(c: Credentials, cs: ClientSecret) -> Authorizer {
         Authorizer {
             cred: c,
-            client_id: client_id,
-            client_secret: client_secret,
+            cs: cs,
             http_cl: reqwest::Client::new(),
             token_url: DEFAULT_TOKEN_URL.into(),
             current_token: None,
         }
     }
 
-    pub fn new_with_client(
-        c: Credentials,
-        client_id: String,
-        client_secret: String,
-        cl: reqwest::Client,
-    ) -> Authorizer {
+    pub fn new_with_client(c: Credentials, cs: ClientSecret, cl: reqwest::Client) -> Authorizer {
         Authorizer {
             cred: c,
-            client_id: client_id,
-            client_secret: client_secret,
+            cs: cs,
             http_cl: cl,
             token_url: DEFAULT_TOKEN_URL.into(),
             current_token: None,
@@ -147,7 +140,7 @@ impl Authorizer {
         let t = time::Instant::now();
         let url = format!(
             "{}?client_id={}&client_secret={}&grant_type=refresh_token&refresh_token={}",
-            self.token_url, self.client_id, self.client_secret, self.cred.refresh_token
+            self.token_url, self.cs.client_id, self.cs.client_secret, self.cred.refresh_token
         );
         let req =
             self.http_cl.post(url).build().map_err(|e| {
@@ -193,8 +186,7 @@ impl Default for LogInState {
 /// given to an `Authorizer` which will produce access tokens from it.
 #[derive(Debug, Clone, Default)]
 pub struct LogInFlow {
-    client_id: String,
-    client_secret: String,
+    cs: ClientSecret,
 
     authorization_url: String,
     token_url: String,
@@ -300,24 +292,17 @@ hd_api 0.1
 </html>";
 
 impl LogInFlow {
-    pub fn default_instance(client_id: String, client_secret: String) -> LogInFlow {
+    pub fn default_instance(cs: ClientSecret) -> LogInFlow {
         Self::new(
-            client_id,
-            client_secret,
+            cs,
             DEFAULT_AUTHORIZATION_URL.into(),
             DEFAULT_TOKEN_URL.into(),
         )
     }
 
-    pub fn new(
-        client_id: String,
-        client_secret: String,
-        auth_url: String,
-        token_url: String,
-    ) -> LogInFlow {
+    pub fn new(cs: ClientSecret, auth_url: String, token_url: String) -> LogInFlow {
         LogInFlow {
-            client_id: client_id,
-            client_secret: client_secret,
+            cs: cs,
             authorization_url: auth_url,
             token_url: token_url,
             ok_body: DEFAULT_BODY_RESPONSE.into(),
@@ -343,7 +328,7 @@ impl LogInFlow {
     pub fn get_authorization_url(&self, scope: Scope) -> String {
         format!(
             "{}?client_id={}&response_type=code&scope={}",
-            self.authorization_url, self.client_id, scope
+            self.authorization_url, self.cs.client_id, scope
         )
     }
 
@@ -388,7 +373,7 @@ impl LogInFlow {
         };
         let url = format!(
             "{}?client_id={}&client_secret={}&grant_type=authorization_code&code={}",
-            self.token_url, self.client_id, self.client_secret, code
+            self.token_url, self.cs.client_id, self.cs.client_secret, code
         );
         self.state = LogInState::ExchangingCode;
         let cl = reqwest::Client::new();
