@@ -1,7 +1,6 @@
 // OAuth2 flow for hidrive installed application.
 
 // TODO:
-// Make defaults configurable
 // Implement revocation
 
 use std::fmt::{self, Display, Formatter};
@@ -196,25 +195,31 @@ impl Default for LogInState {
 pub struct LogInFlow {
     client_id: String,
     client_secret: String,
+
     authorization_url: String,
     token_url: String,
+
+    lang: Lang,
+
+    ok_body: String,
+    err_body: String,
 
     state: LogInState,
     authz_code: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Role {
     User,
     Admin,
     Owner,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Access {
     Ro,
     Rw,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scope {
     role: Role,
     access: Access,
@@ -245,14 +250,20 @@ impl Display for Scope {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Lang {
     De,
     En,
     Es,
     Fr,
     Nl,
-    Pt
+    Pt,
+}
+
+impl Default for Lang {
+    fn default() -> Lang {
+        Lang::En
+    }
 }
 
 impl Display for Lang {
@@ -290,14 +301,12 @@ hd_api 0.1
 
 impl LogInFlow {
     pub fn default_instance(client_id: String, client_secret: String) -> LogInFlow {
-        LogInFlow {
-            client_id: client_id,
-            client_secret: client_secret,
-            authorization_url: DEFAULT_AUTHORIZATION_URL.into(),
-            token_url: DEFAULT_TOKEN_URL.into(),
-
-            ..Default::default()
-        }
+        Self::new(
+            client_id,
+            client_secret,
+            DEFAULT_AUTHORIZATION_URL.into(),
+            DEFAULT_TOKEN_URL.into(),
+        )
     }
 
     pub fn new(
@@ -311,9 +320,23 @@ impl LogInFlow {
             client_secret: client_secret,
             authorization_url: auth_url,
             token_url: token_url,
+            ok_body: DEFAULT_BODY_RESPONSE.into(),
+            err_body: DEFAULT_ERROR_RESPONSE.into(),
 
             ..Default::default()
         }
+    }
+
+    /// Set language for OAuth screens presented to the user.
+    pub fn set_lang(&mut self, lang: Lang) {
+        self.lang = lang;
+    }
+
+    /// Set the content displayed to a user upon encountering the redirect server operated by the
+    /// LogInFlow.
+    pub fn set_redirect_screen_body(&mut self, ok_body: String, err_body: String) {
+        self.ok_body = ok_body;
+        self.err_body = err_body;
     }
 
     /// Obtain URL for user to navigate to in order to authorize us.
@@ -334,7 +357,7 @@ impl LogInFlow {
     /// start a web server on port 8087 (TO DO: make this adjustable) and wait for the redirect
     /// request.
     pub async fn wait_for_redirect(&mut self) -> anyhow::Result<()> {
-        let rdr = RedirectHandlingServer::new();
+        let rdr = RedirectHandlingServer::new(self.ok_body.clone(), self.err_body.clone());
         match rdr.start_and_wait_for_code().await {
             LogInResult::Ok { code } => {
                 self.authz_code = Some(code);
@@ -394,12 +417,18 @@ enum LogInResult {
 }
 
 struct RedirectHandlingServer {
+    ok_body: String,
+    err_body: String,
     port: u16,
 }
 
 impl RedirectHandlingServer {
-    fn new() -> RedirectHandlingServer {
-        RedirectHandlingServer { port: 8087 }
+    fn new(ok_body: String, err_body: String) -> RedirectHandlingServer {
+        RedirectHandlingServer {
+            port: 8087,
+            ok_body: ok_body,
+            err_body: err_body,
+        }
     }
 
     async fn start_and_wait_for_code(&self) -> LogInResult {
@@ -409,9 +438,16 @@ impl RedirectHandlingServer {
         let mkservice = service::make_service_fn(|_c: &server::conn::AddrStream| {
             let s = s.clone();
             let sd = sds.clone();
+            let (ok_body, err_body) = (self.ok_body.clone(), self.err_body.clone());
             async move {
                 Ok::<_, std::convert::Infallible>(service::service_fn(move |rq| {
-                    RedirectHandlingServer::handle(rq, s.clone(), sd.clone())
+                    RedirectHandlingServer::handle(
+                        rq,
+                        s.clone(),
+                        sd.clone(),
+                        ok_body.clone(),
+                        err_body.clone(),
+                    )
                 }))
             }
         });
@@ -437,6 +473,8 @@ impl RedirectHandlingServer {
         rq: hyper::Request<hyper::Body>,
         result: mpsc::Sender<LogInResult>,
         shutdown: mpsc::Sender<()>,
+        ok_body: String,
+        err_body: String,
     ) -> anyhow::Result<hyper::Response<hyper::Body>> {
         shutdown.send(()).await.expect("shutdown: mpsc error");
         info!(target: "hd_api", "Received OAuth callback");
@@ -451,7 +489,7 @@ impl RedirectHandlingServer {
                     .await
                     .expect("result: mpsc error");
                 return response_builder
-                    .body(DEFAULT_ERROR_RESPONSE.into())
+                    .body(err_body.into())
                     .map_err(anyhow::Error::new)
                     .context("Couldn't create response to callback request");
             }
@@ -479,12 +517,12 @@ impl RedirectHandlingServer {
                 .await
                 .expect("mpsc send error");
             return response_builder
-                .body(DEFAULT_ERROR_RESPONSE.into())
+                .body(err_body.into())
                 .map_err(anyhow::Error::new)
                 .context("couldn't create response to callback request");
         }
         response_builder
-            .body(DEFAULT_BODY_RESPONSE.into())
+            .body(ok_body.into())
             .map_err(anyhow::Error::new)
             .context("couldn't create response to callback request")
     }
@@ -496,7 +534,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_code_flow() {
-        let rdr = oauth2::RedirectHandlingServer::new();
+        let rdr = oauth2::RedirectHandlingServer::new(
+            oauth2::DEFAULT_BODY_RESPONSE.into(),
+            oauth2::DEFAULT_ERROR_RESPONSE.into(),
+        );
 
         for (url, resp) in [
             (
@@ -525,7 +566,10 @@ mod tests {
     async fn manual_test() {
         // Enable this to check out the returned page manually.
         return;
-        let rdr = oauth2::RedirectHandlingServer::new();
+        let rdr = oauth2::RedirectHandlingServer::new(
+            oauth2::DEFAULT_BODY_RESPONSE.into(),
+            oauth2::DEFAULT_ERROR_RESPONSE.into(),
+        );
         println!("{:?}", rdr.start_and_wait_for_code().await);
     }
 
@@ -536,7 +580,13 @@ mod tests {
             .await
             .unwrap();
         let mut lif = oauth2::LogInFlow::default_instance(cs.client_id, cs.client_secret);
-        println!("Go to {}", lif.get_authorization_url("ro".into()));
+        println!(
+            "Go to {}",
+            lif.get_authorization_url(oauth2::Scope {
+                role: oauth2::Role::User,
+                access: oauth2::Access::Ro
+            })
+        );
         lif.wait_for_redirect().await.unwrap();
         println!("Received code! Exchanging...");
         let tok = lif.exchange_code().await.unwrap();
