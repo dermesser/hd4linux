@@ -18,6 +18,15 @@ pub struct Folder {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Permissions {
+    account: String,
+    readable: bool,
+    writable: bool,
+    path: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Protocols {
     ftp: bool,
     rsync: bool,
