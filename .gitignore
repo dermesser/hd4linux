@@ -1,4 +1,4 @@
-/target
-/Cargo.lock
-/api.key
-/*.json
+target
+Cargo.lock
+api.key
+*.json
