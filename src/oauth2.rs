@@ -6,7 +6,7 @@
 use std::fmt::{self, Display, Formatter};
 
 use anyhow::{self, Context};
-use log::{error, info, warn};
+use log::{self, info};
 
 use hyper::{server, service};
 use serde::{Deserialize, Serialize};

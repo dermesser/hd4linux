@@ -5,9 +5,9 @@ use std::collections::LinkedList;
 use std::fmt::{Display, Formatter};
 
 use anyhow::{self, Context, Error, Result};
-use log::{error, info, warn};
+use log::{self, info};
 use reqwest;
-use serde::{de::DeserializeOwned, ser::SerializeSeq, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, ser::SerializeSeq};
 use serde_json;
 
 pub enum ParamValue {

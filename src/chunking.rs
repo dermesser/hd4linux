@@ -1,8 +1,8 @@
 
-use anyhow::{Context, Error, Result};
+use anyhow::{self, Result};
 use rolling_dual_crc::RollingDualCrc;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncBufRead, AsyncBufReadExt};
+use tokio::io::{AsyncReadExt, AsyncBufRead};
 
 pub async fn find_borders<R: AsyncBufRead + Unpin>(r: &mut R, window_size: usize, zerobits: usize) -> Result<Vec<usize>> {
     assert!(zerobits <= 32);
@@ -40,7 +40,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_borders() {
-        println!("First borders: {:?}", find_borders_of_file("OAuth2-ServerFlow_NativeLocalhostFlow_v1_2a.pdf").await);
-        println!("Second borders: {:?}", find_borders_of_file("ModifiedPdf.pdf").await);
+        println!("Borders: {:?}", find_borders_of_file("OAuth2-ServerFlow_NativeLocalhostFlow_v1_2a.pdf").await);
     }
 }
