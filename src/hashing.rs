@@ -1,8 +1,8 @@
-
-
 use std::fmt::{self, Display, Formatter};
 
-use anyhow::{Result};
+use anyhow::Result;
+use digest;
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -11,12 +11,58 @@ const HASH_BYTES: usize = 20;
 const BLOCK_SIZE: usize = 4096;
 const LEVEL_GROUP: usize = 256;
 
-#[derive(Debug)]
+fn hash_string<S: AsRef<str>>(s: S) -> Hash {
+    let mut h = Sha1::new();
+    h.update(s.as_ref().as_bytes());
+    Hash::new_from_sha1(h.finalize())
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+pub struct HashedName {
+    name: String,
+    nhash: String,
+    mtime: Option<i64>,
+    mhash: Option<String>,
+}
+
+impl HashedName {
+    pub fn new_for_name<S: AsRef<str>>(s: S) -> HashedName {
+        HashedName {
+            name: s.as_ref().into(),
+            nhash: format!("{}", hash_string(s)),
+            ..Default::default()
+        }
+    }
+
+    pub fn new_for_dir<S: AsRef<str>>(s: S, mtime: i64) -> HashedName {
+        let nh = hash_string(&s);
+
+        let mut h = Sha1::new();
+        h.update(nh.0);
+        h.update(&mtime.to_le_bytes());
+        let h = Hash::new_from_sha1(h.finalize());
+
+        HashedName {
+            name: s.as_ref().into(),
+            nhash: format!("{}", nh),
+            mtime: Some(mtime),
+            mhash: Some(format!("{}", h)),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Hash([u8; HASH_BYTES]);
 
 impl Hash {
     fn new() -> Hash {
         Hash([0; HASH_BYTES])
+    }
+
+    fn new_from_sha1(ga: digest::Output<Sha1>) -> Hash {
+        let mut h = Hash::new();
+        h.0.copy_from_slice(ga.as_slice());
+        h
     }
 
     fn is_zero_hash(&self) -> bool {
@@ -106,6 +152,7 @@ impl HashLevel {
     }
 }
 
+/// A HiDrive hashing tree. See "HiDrive_Synchronization-v3.3-rev28.pdf".
 #[derive(Debug)]
 pub struct Hashes {
     l: Vec<HashLevel>,
@@ -147,6 +194,11 @@ impl Hashes {
         }
         Ok(hashes)
     }
+
+    /// Return the hash of the entire file's hash tree.
+    fn top_hash<'a>(&'a self) -> &'a Hash {
+        &self.l[self.l.len()-1].h[0]
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +220,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_hash_string() {
+        assert_eq!(
+            "1f8ac10f23c5b5bc1167bda84b833e5c057a77d2",
+            format!("{}", super::hash_string("abcdef"))
+        );
+    }
+
     #[tokio::test]
     async fn test_hash_tree_4k() {
         let f = fs::OpenOptions::new()
@@ -178,6 +238,7 @@ mod tests {
         let h = super::Hashes::calculate(f).await.unwrap();
         assert_eq!("09f077820a8a41f34a639f2172f1133b1eafe4e6", format!("{}", h));
     }
+
     #[tokio::test]
     async fn test_hash_tree_1m() {
         let f = fs::OpenOptions::new()
@@ -188,6 +249,7 @@ mod tests {
         let h = super::Hashes::calculate(f).await.unwrap();
         assert_eq!("75a9f88fb219ef1dd31adf41c93e2efaac8d0245", format!("{}", h));
     }
+
     #[tokio::test]
     async fn test_hash_tree_2m() {
         let f = fs::OpenOptions::new()
@@ -197,5 +259,29 @@ mod tests {
             .unwrap();
         let h = super::Hashes::calculate(f).await.unwrap();
         assert_eq!("fd0da83a93d57dd4e514c8641088ba1322aa6947", format!("{}", h));
+    }
+
+    #[tokio::test]
+    async fn test_top_hash_2m() {
+        let f = fs::OpenOptions::new()
+            .read(true)
+            .open("testdata/test_hashes_2M.txt")
+            .await
+            .unwrap();
+        let h = super::Hashes::calculate(f).await.unwrap();
+        let h = h.top_hash();
+        assert_eq!("fd0da83a93d57dd4e514c8641088ba1322aa6947", format!("{}", h));
+    }
+
+    #[test]
+    fn test_nhash() {
+        let name = "HiDrive ☁";
+        let mtime = 1456789012;
+
+        let h = super::HashedName::new_for_dir(name, mtime);
+        assert_eq!(h.name, name);
+        assert_eq!(h.nhash, "f72f99f62d1142f67ac32be03043c0c2adb3ab88");
+        assert_eq!(h.mtime.unwrap(), mtime);
+        assert_eq!(h.mhash.unwrap(), "4f450fa02257ea368179557f482e73b2fb80b566");
     }
 }
