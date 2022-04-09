@@ -172,7 +172,7 @@ mod tests {
     async fn test_hash_tree_4k() {
         let f = fs::OpenOptions::new()
             .read(true)
-            .open("test_hashes.txt")
+            .open("testdata/test_hashes.txt")
             .await
             .unwrap();
         let h = super::Hashes::calculate(f).await.unwrap();
@@ -182,7 +182,7 @@ mod tests {
     async fn test_hash_tree_1m() {
         let f = fs::OpenOptions::new()
             .read(true)
-            .open("test_hashes_1M.txt")
+            .open("testdata/test_hashes_1M.txt")
             .await
             .unwrap();
         let h = super::Hashes::calculate(f).await.unwrap();
@@ -192,7 +192,7 @@ mod tests {
     async fn test_hash_tree_2m() {
         let f = fs::OpenOptions::new()
             .read(true)
-            .open("test_hashes_2M.txt")
+            .open("testdata/test_hashes_2M.txt")
             .await
             .unwrap();
         let h = super::Hashes::calculate(f).await.unwrap();
