@@ -19,7 +19,6 @@ jobs:
           default: true
       - uses: actions-rs/cargo@v1
         with:
-          working-directory: ./hd_api
           command: test
           args: --no-default-features --features=${{ matrix.features }}
 
