@@ -191,10 +191,13 @@ pub fn nhash<S: AsRef<Path>>(filename: S) -> Hash {
 }
 
 /// Calculate mhash for a given filename and access time (in seconds since epoch).
-pub fn mhash<S: AsRef<Path>>(filename: S, mtime: i64) -> Hash {
+pub fn mhash<S: AsRef<Path>>(filename: S, mtime: i64, size: Option<u64>) -> Hash {
     let mut h = Sha1::new();
     let nh = nhash(filename);
     h.update(nh.0);
+    if let Some(s) = size {
+        h.update(s.to_le_bytes());
+    }
     h.update(mtime.to_le_bytes());
     Hash::new_from_sha1(h.finalize())
 }
@@ -227,6 +230,25 @@ pub async fn chash<R: AsyncRead + Unpin>(mut r: R) -> Result<Hashes> {
         hashes.l.push(level);
     }
     Ok(hashes)
+}
+
+pub fn chash_dir(mhashes: &[Hash], chashes: &[Hash]) -> Hash {
+    let mut h = Hash::new();
+    for mh in mhashes {
+        h = add_hashes(h, &mh.0);
+    }
+    for ch in chashes {
+        h = add_hashes(h, &ch.0);
+    }
+    h
+}
+
+pub fn mohash_dir(mhashes: &[Hash]) -> Hash {
+    let mut h = Hash::new();
+    for mh in mhashes {
+        h = add_hashes(h, &mh.0);
+    }
+    h
 }
 
 #[cfg(test)]
@@ -306,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nhash() {
+    fn test_nhash_mhash() {
         let name = "HiDrive ☁";
         let mtime = 1456789012;
 
@@ -316,7 +338,30 @@ mod tests {
         );
         assert_eq!(
             "4f450fa02257ea368179557f482e73b2fb80b566",
-            super::mhash(name, mtime).to_string()
+            super::mhash(name, mtime, None).to_string()
+        );
+    }
+
+    #[test]
+    fn test_dirchash() {
+        let fname = "sample.bin";
+        let fmtime = 1234567890;
+        let fsize = 2107392;
+
+        let h = super::chash_dir(
+            &[super::mhash(fname, fmtime, Some(fsize))],
+            &[super::Hash::parse("fd0da83a93d57dd4e514c8641088ba1322aa6947").unwrap()],
+        );
+        let mohash = super::mohash_dir(&[super::mhash(fname, fmtime, Some(fsize))]);
+        // Directory's chash
+        assert_eq!("41ad9693fefd464dea4365e646f56fe96165603d", h.to_string());
+        assert_eq!(
+            "449fee596b27c879052e9d82366cb5d63ebaf6f6",
+            mohash.to_string()
+        );
+        assert_eq!(
+            "449fee596b27c879052e9d82366cb5d63ebaf6f6",
+            super::mhash(fname, fmtime, Some(fsize)).to_string()
         );
     }
 
