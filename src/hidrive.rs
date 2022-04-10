@@ -50,7 +50,7 @@ impl serde::Serialize for Params {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut ss = s.serialize_seq(Some(self.p.len()))?;
         for p in self.p.iter() {
-            ss.serialize_element(&(&p.name, &format!("{}", p.val)))?;
+            ss.serialize_element(&(&p.name, p.val.to_string()))?;
         }
         ss.end()
     }
