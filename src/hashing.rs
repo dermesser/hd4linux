@@ -1,15 +1,15 @@
 use std::fmt::{self, Display, Formatter};
 use std::path::Path;
+use std::time;
 
 #[cfg(target_family = "unix")]
 use std::os::unix::ffi::OsStrExt;
 
-use std::str::FromStr;
-
 use anyhow::{self, Result};
 use digest;
-use serde::{de, de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use sha1::{Digest, Sha1};
+use tokio::fs;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 // We are using SHA-1 everywhere, thus 20 bytes = 160 bits.
@@ -179,15 +179,24 @@ impl Display for Hashes {
 }
 
 impl Hashes {
-    /// Return the hash of the entire file's hash tree.
+    /// Return the hash of the entire file's hash tree, which is used as `chash` in the API.
     pub fn top_hash<'a>(&'a self) -> &'a Hash {
         &self.l[self.l.len() - 1].h[0]
     }
 }
 
+/// Calculate `nhash`, `mhash`, `chash` at once and return them.
+pub async fn file_hashes<S: AsRef<Path>>(path: S) -> Result<(Hash, Hash, Hash)> {
+    let nh = nhash(&path);
+    let mh = mhash_file(&path).await?;
+    let ch = chash_file(&path).await?;
+    Ok((nh, mh, ch.top_hash().clone()))
+}
+
 /// Calculate nhash for file name.
 pub fn nhash<S: AsRef<Path>>(filename: S) -> Hash {
-    Hash::for_string(filename.as_ref().as_os_str().as_bytes())
+    // To do: handle error when parsing file name.
+    Hash::for_string(filename.as_ref().file_name().unwrap().as_bytes())
 }
 
 /// Calculate mhash for a given filename and access time (in seconds since epoch).
@@ -202,6 +211,25 @@ pub fn mhash<S: AsRef<Path>>(filename: S, mtime: i64, size: Option<u64>) -> Hash
     Hash::new_from_sha1(h.finalize())
 }
 
+/// Hashes a file at the given path to obtain the mhash. This hash goes over file name (basename),
+/// file size, and mtime.
+pub async fn mhash_file<S: AsRef<Path>>(path: S) -> Result<Hash> {
+    let md = fs::metadata(&path).await?;
+    let mtime = md
+        .modified()?
+        .duration_since(time::SystemTime::UNIX_EPOCH)?;
+    let mtime_s = mtime.as_secs();
+    let fsize = md.len();
+    Ok(mhash(path, mtime_s as i64, Some(fsize)))
+}
+
+/// Calculate content hash for file at path. A shortcut for opening a file and using `chash`.
+pub async fn chash_file<S: AsRef<Path>>(path: S) -> Result<Hashes> {
+    let f = fs::OpenOptions::new().read(true).open(path).await?;
+    chash(f).await
+}
+
+/// Hashes a file's content.
 pub async fn chash<R: AsyncRead + Unpin>(mut r: R) -> Result<Hashes> {
     let mut l0 = HashLevel { h: vec![] };
     loop {
@@ -384,5 +412,24 @@ mod tests {
                 .unwrap()
                 .to_string()
         );
+    }
+
+    #[tokio::test]
+    async fn test_mhash_file() {
+        assert_eq!(
+            "449fee596b27c879052e9d82366cb5d63ebaf6f6",
+            super::mhash_file("testdata/sample.bin")
+                .await
+                .unwrap()
+                .to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_file_hashes() {
+        let (nh, mh, ch) = super::file_hashes("testdata/sample.bin").await.unwrap();
+        assert_eq!("7220d977d2db4499f333bfff421158b9815a686f", nh.to_string());
+        assert_eq!("449fee596b27c879052e9d82366cb5d63ebaf6f6", mh.to_string());
+        assert_eq!("fd0da83a93d57dd4e514c8641088ba1322aa6947", ch.to_string());
     }
 }
