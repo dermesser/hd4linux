@@ -24,9 +24,9 @@ pub enum ParamValue {
 impl Display for ParamValue {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            &ParamValue::String(ref s) => s.fmt(f),
-            &ParamValue::Bool(b) => b.fmt(f),
-            &ParamValue::Int(u) => u.fmt(f),
+            ParamValue::String(ref s) => s.fmt(f),
+            ParamValue::Bool(b) => b.fmt(f),
+            ParamValue::Int(u) => u.fmt(f),
         }
     }
 }
@@ -47,6 +47,7 @@ impl Display for Param {
 /// Use Params to supply optional query parameters to API calls. This implements the required trait
 /// of `P` parameters in API methods. Alternatively, you can use constructs like `&[("key",
 /// "value")]`.
+#[derive(Default)]
 pub struct Params {
     p: LinkedList<Param>,
 }
@@ -107,7 +108,7 @@ impl Display for Params {
     }
 }
 
-const DEFAULT_API_BASE_URL: &'static str = "https://api.hidrive.strato.com/2.1";
+const DEFAULT_API_BASE_URL: &str = "https://api.hidrive.strato.com/2.1";
 
 pub struct HiDrive {
     client: reqwest::Client,
@@ -124,15 +125,15 @@ impl HiDrive {
         }
     }
 
-    pub fn user<'a>(&'a mut self) -> HiDriveUser<'a> {
+    pub fn user(&mut self) -> HiDriveUser<'_> {
         HiDriveUser { hd: self }
     }
 
-    pub fn permissions<'a>(&'a mut self) -> HiDrivePermission<'a> {
+    pub fn permissions(&mut self) -> HiDrivePermission<'_> {
         HiDrivePermission { hd: self }
     }
 
-    pub fn files<'a>(&'a mut self) -> HiDriveFiles<'a> {
+    pub fn files(&mut self) -> HiDriveFiles<'_> {
         HiDriveFiles { hd: self }
     }
 

@@ -101,21 +101,25 @@ pub struct Authorizer {
 
 impl Authorizer {
     /// Create a new Authorizer instance.
-    pub fn new(c: Credentials, cs: ClientSecret) -> Authorizer {
+    pub fn new(cred: Credentials, cs: ClientSecret) -> Authorizer {
         Authorizer {
-            cred: c,
-            cs: cs,
+            cred,
+            cs,
             http_cl: reqwest::Client::new(),
             token_url: DEFAULT_TOKEN_URL.into(),
             current_token: None,
         }
     }
 
-    pub fn new_with_client(c: Credentials, cs: ClientSecret, cl: reqwest::Client) -> Authorizer {
+    pub fn new_with_client(
+        cred: Credentials,
+        cs: ClientSecret,
+        http_cl: reqwest::Client,
+    ) -> Authorizer {
         Authorizer {
-            cred: c,
-            cs: cs,
-            http_cl: cl,
+            cred,
+            cs,
+            http_cl,
             token_url: DEFAULT_TOKEN_URL.into(),
             current_token: None,
         }
@@ -277,9 +281,9 @@ impl Display for Lang {
 }
 
 // TODO: These could be read from the client secret file.
-const DEFAULT_AUTHORIZATION_URL: &'static str = "https://my.hidrive.com/client/authorize";
-const DEFAULT_TOKEN_URL: &'static str = "https://my.hidrive.com/oauth2/token";
-const DEFAULT_BODY_RESPONSE: &'static str = r"
+const DEFAULT_AUTHORIZATION_URL: &str = "https://my.hidrive.com/client/authorize";
+const DEFAULT_TOKEN_URL: &str = "https://my.hidrive.com/oauth2/token";
+const DEFAULT_BODY_RESPONSE: &str = r"
 <html>
 <head><title>Authorization complete</title></head>
 <body>Authorization is complete; you may close this window now
@@ -287,7 +291,7 @@ const DEFAULT_BODY_RESPONSE: &'static str = r"
 hd_api::oauth2 0.1
 </body>
 </html>";
-const DEFAULT_ERROR_RESPONSE: &'static str = r"
+const DEFAULT_ERROR_RESPONSE: &str = r"
 <html>
 <head><title>Authorization failed</title></head>
 <body>Something went wrong; please return to the application
@@ -305,11 +309,11 @@ impl LogInFlow {
         )
     }
 
-    pub fn new(cs: ClientSecret, auth_url: String, token_url: String) -> LogInFlow {
+    pub fn new(cs: ClientSecret, authorization_url: String, token_url: String) -> LogInFlow {
         LogInFlow {
-            cs: cs,
-            authorization_url: auth_url,
-            token_url: token_url,
+            cs,
+            authorization_url,
+            token_url,
             ok_body: DEFAULT_BODY_RESPONSE.into(),
             err_body: DEFAULT_ERROR_RESPONSE.into(),
 
@@ -422,8 +426,8 @@ impl RedirectHandlingServer {
     fn new(ok_body: String, err_body: String) -> RedirectHandlingServer {
         RedirectHandlingServer {
             port: 8087,
-            ok_body: ok_body,
-            err_body: err_body,
+            ok_body,
+            err_body,
         }
     }
 
@@ -452,7 +456,6 @@ impl RedirectHandlingServer {
         // Wait for handler to signal arrival of request.
         let graceful = srv.with_graceful_shutdown(async move {
             sdr.recv().await;
-            ()
         });
         info!(target: "hd_api::oauth2", "Started server for code callback...");
         graceful.await.expect("server error!");

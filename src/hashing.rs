@@ -183,11 +183,11 @@ impl Display for Hashes {
 
 impl Hashes {
     /// Return the hash of the entire file's hash tree, which is used as `chash` in the API.
-    pub fn top_hash<'a>(&'a self) -> &'a Hash {
+    pub fn top_hash(&self) -> &Hash {
         &self.l[self.l.len() - 1].h[0]
     }
 
-    pub fn from_api_hashes(ah: &Vec<types::HashedBlock>) -> Result<Hashes> {
+    pub fn from_api_hashes(ah: &[types::HashedBlock]) -> Result<Hashes> {
         let mut by_level: HashMap<usize, Vec<(usize, Hash)>> = HashMap::new();
         let mut max_level = 0;
         for hb in ah.iter() {
@@ -262,7 +262,7 @@ pub async fn chash_file<S: AsRef<Path>>(path: S) -> Result<Hashes> {
 pub async fn chash<R: AsyncRead + Unpin>(mut r: R) -> Result<Hashes> {
     let mut l0 = HashLevel { h: vec![] };
     loop {
-        let mut buf = [0 as u8; BLOCK_SIZE];
+        let mut buf = [0_u8; BLOCK_SIZE];
         let n = r.read(&mut buf).await?;
         if n == 0 {
             break;
