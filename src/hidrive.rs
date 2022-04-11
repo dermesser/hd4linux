@@ -12,6 +12,8 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq};
 use serde_json;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
+const NO_BODY: Option<reqwest::Body> = None;
+
 pub enum ParamValue {
     String(String),
     Bool(bool),
@@ -163,15 +165,18 @@ async fn gen_call<
     P: serde::Serialize + ?Sized,
     RP: serde::Serialize + ?Sized,
     RT: DeserializeOwned,
+    BT: Into<reqwest::Body>,
 >(
     hd: &mut HiDrive,
     method: reqwest::Method,
     url: U,
     required: &RP,
     optional: Option<&P>,
+    body: Option<BT>,
 ) -> Result<RT> {
-    gen_call_cb(hd, method, url, required, optional, read_body_to_json).await
+    gen_call_cb(hd, method, url, required, optional, body, read_body_to_json).await
 }
+
 /// Generic call to an API endpoint.
 async fn gen_call_cb<
     U: reqwest::IntoUrl,
@@ -180,16 +185,21 @@ async fn gen_call_cb<
     RT,
     RF: futures::Future<Output = Result<RT>>,
     CB: FnOnce(reqwest::Response) -> RF,
+    BT: Into<reqwest::Body>,
 >(
     hd: &mut HiDrive,
     method: reqwest::Method,
     url: U,
     required: &RP,
     optional: Option<&P>,
+    body: Option<BT>,
     cb: CB,
 ) -> Result<RT> {
     let rqb = hd.new_request(method, url).await?;
-    let rqb = rqb.query(required);
+    let mut rqb = rqb.query(required);
+    if let Some(body) = body {
+        rqb = rqb.body(body);
+    }
     let rp = if let Some(params) = optional {
         let rqb = rqb.query(params);
         info!(target: "hd_api", "Sending HTTP request: {:?}", rqb);
@@ -215,7 +225,15 @@ pub struct HiDriveUser<'a> {
 impl<'a> HiDriveUser<'a> {
     pub async fn me<P: serde::Serialize + ?Sized>(&mut self, params: Option<&P>) -> Result<User> {
         let u = format!("{}/user/me", self.hd.base_url);
-        return gen_call(self.hd, reqwest::Method::GET, u, &Params::new(), params).await;
+        return gen_call(
+            self.hd,
+            reqwest::Method::GET,
+            u,
+            &Params::new(),
+            params,
+            NO_BODY,
+        )
+        .await;
     }
 }
 
@@ -235,7 +253,7 @@ impl<'a> HiDrivePermission<'a> {
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
         let rqp = &[("path", path.as_ref().to_string())];
-        return gen_call(self.hd, reqwest::Method::GET, u, &rqp, p).await;
+        return gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await;
     }
 
     /// PUT /2.1/permission
@@ -248,7 +266,7 @@ impl<'a> HiDrivePermission<'a> {
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
         let rqp = &[("path", path.as_ref().to_string())];
-        gen_call(self.hd, reqwest::Method::PUT, u, &rqp, p).await
+        gen_call(self.hd, reqwest::Method::PUT, u, &rqp, p, NO_BODY).await
     }
 }
 
@@ -286,6 +304,15 @@ impl<'a> HiDriveFiles<'a> {
     ) -> Result<usize> {
         let cb = move |rp: reqwest::Response| write_response_to_file(rp, out);
         let u = format!("{}/file", self.hd.base_url);
-        gen_call_cb(self.hd, reqwest::Method::GET, u, &Params::new(), p, cb).await
+        gen_call_cb(
+            self.hd,
+            reqwest::Method::GET,
+            u,
+            &Params::new(),
+            p,
+            NO_BODY,
+            cb,
+        )
+        .await
     }
 }
