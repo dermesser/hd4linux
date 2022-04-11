@@ -7,11 +7,10 @@ use reqwest;
 use serde_json::to_string_pretty;
 use tokio;
 
-async fn list_me<'a>(mut u: hidrive::HiDriveUser<'a>) -> anyhow::Result<()> {
+async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
     let mut p = hidrive::Params::new();
-    p.add_str("fields", "account,alias,descr,email,email_pending,email_verified,encrypted,folder.id,folder.path,folder.size,home,home_id,is_admin,is_owner,language,protocols,has_password");
-    let me = u.me(Some(&p)).await?;
-    println!("{}", to_string_pretty(&me)?);
+    p.add_str("path", "/users/lebohd0/hd_api/test.txt");
+    let n = u.get(tokio::io::stdout(), Some(&p)).await?;
     Ok(())
 }
 
@@ -28,5 +27,5 @@ async fn main() {
     let authz = oauth2::Authorizer::new_with_client(cred, cid, client.clone());
 
     let mut hd = hidrive::HiDrive::new(reqwest::Client::new(), authz);
-    list_me(hd.user()).await.unwrap();
+    get_file(hd.files()).await.unwrap();
 }
