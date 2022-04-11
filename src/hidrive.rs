@@ -6,13 +6,14 @@ use std::fmt::{Display, Formatter};
 
 use anyhow::{self, Context, Error, Result};
 use futures::StreamExt;
-use log::{self, info};
+use log::{self, info, warn};
 use reqwest;
 use serde::{de::DeserializeOwned, ser::SerializeSeq};
 use serde_json;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 const NO_BODY: Option<reqwest::Body> = None;
+const NO_PARAMS: Option<&Params> = None;
 
 pub enum ParamValue {
     String(String),
@@ -149,13 +150,15 @@ impl HiDrive {
 
 /// This is a callback for gen_call_cb, deserializing the response to JSON.
 async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response) -> Result<RT> {
-    if rp.status().is_success() {
+    let status = rp.status();
+    if status.is_success() {
         let body = rp.text().await?;
-        info!(target: "hd_api", "Received HTTP response body: {}", body);
+        info!(target: "hd_api::hidrive", "Received HTTP response 200, body: {}", body);
         Ok(serde_json::from_reader(body.as_bytes())?)
     } else {
         let body = rp.text().await?;
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
+        warn!(target: "hd_api::hidrive", "Received HTTP error {}: {}", status, serde_json::to_string(&e)?);
         Err(Error::msg(format!("Error from API: {:?}", e)))
     }
 }
@@ -200,16 +203,15 @@ async fn gen_call_cb<
     if let Some(body) = body {
         rqb = rqb.body(body);
     }
-    let rp = if let Some(params) = optional {
-        let rqb = rqb.query(params);
-        info!(target: "hd_api", "Sending HTTP request: {:?}", rqb);
-        rqb.send().await?
+    let rqb = if let Some(params) = optional {
+        rqb.query(params)
     } else {
-        rqb.send().await?
+        rqb
     };
+    info!(target: "hd_api::hidrive", "Sending HTTP request: {:?}", rqb);
+    let rp = rqb.send().await?;
 
-    let status = rp.status();
-    info!(target: "hd_api", "Received HTTP response: {:?}", rp);
+    info!(target: "hd_api::hidrive", "Received HTTP response: {:?}", rp);
     cb(rp).await
 }
 
@@ -314,5 +316,10 @@ impl<'a> HiDriveFiles<'a> {
             cb,
         )
         .await
+    }
+
+    pub async fn hash<P: serde::Serialize + ?Sized>(&mut self, p: &P) -> Result<FileHash> {
+        let u = format!("{}/file/hash", self.hd.base_url);
+        gen_call(self.hd, reqwest::Method::GET, u, p, NO_PARAMS, NO_BODY).await
     }
 }

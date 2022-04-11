@@ -63,6 +63,7 @@ impl Credentials {
     /// Save credentials to file.
     pub async fn save(&self, f: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
         let s = to_string_pretty(self)?;
+        info!(target: "hd_api::oauth2", "Saving credentials to {:?}", f.as_ref());
         fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -77,6 +78,7 @@ impl Credentials {
     /// Load credentials from file.
     pub async fn load(f: impl AsRef<std::path::Path>) -> anyhow::Result<Credentials> {
         let mut s = String::new();
+        info!(target: "hd_api::oauth2", "Loading credentials from {:?}", f.as_ref());
         fs::OpenOptions::new()
             .read(true)
             .open(f)
@@ -131,6 +133,7 @@ impl Authorizer {
             }
         };
 
+        info!(target: "hd_api::oauth2", "no current token available: refreshing from OAuth2 provider");
         // No current token available, need to refresh.
         self.current_token = Some(self.refresh().await?);
         Ok(self.current_token.as_ref().unwrap().0.clone())
@@ -146,10 +149,12 @@ impl Authorizer {
             self.http_cl.post(url).build().map_err(|e| {
                 anyhow::Error::new(e).context("Couldn't build token exchange request.")
             })?;
+        info!(target: "hd_api::oauth2", "Refreshing OAuth2 access: {:?}", req);
         let resp = match self.http_cl.execute(req).await {
             Err(e) => return Err(anyhow::Error::new(e).context("Couldn't exchange code for token")),
             Ok(resp) => resp,
         };
+        info!(target: "hd_api::oauth2", "Refresh request got response: {:?}", resp);
         let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
         self.cred = from_str(&body)?;
         Ok((self.cred.access_token.clone(), t))
@@ -279,7 +284,7 @@ const DEFAULT_BODY_RESPONSE: &'static str = r"
 <head><title>Authorization complete</title></head>
 <body>Authorization is complete; you may close this window now
 <hr />
-hd_api 0.1
+hd_api::oauth2 0.1
 </body>
 </html>";
 const DEFAULT_ERROR_RESPONSE: &'static str = r"
@@ -287,7 +292,7 @@ const DEFAULT_ERROR_RESPONSE: &'static str = r"
 <head><title>Authorization failed</title></head>
 <body>Something went wrong; please return to the application
 <hr />
-hd_api 0.1
+hd_api::oauth2 0.1
 </body>
 </html>";
 
@@ -336,6 +341,7 @@ impl LogInFlow {
     pub fn supply_authorization_code(&mut self, code: String) {
         self.authz_code = Some(code);
         self.state = LogInState::ReceivedCode;
+        info!(target: "hd_api::oauth2", "LogInFlow: ReceivedCode");
     }
 
     /// If your application is configured with a redirect-to-localhost scheme, this will
@@ -347,9 +353,11 @@ impl LogInFlow {
             LogInResult::Ok { code } => {
                 self.authz_code = Some(code);
                 self.state = LogInState::ReceivedCode;
+                info!(target: "hd_api::oauth2", "LogInFlow: ReceivedCode");
             }
             LogInResult::Err { err } => {
                 self.state = LogInState::Error;
+                info!(target: "hd_api::oauth2", "LogInFlow: Error (failed to receive code from internal server)");
                 return Err(
                     anyhow::Error::msg(err).context("Received error from redirect catching server")
                 );
@@ -361,6 +369,7 @@ impl LogInFlow {
     /// Call this to exchange the received code for access tokens.
     /// Save the returned credentials somewhere for use in `Authorizer`.
     pub async fn exchange_code(&mut self) -> anyhow::Result<Credentials> {
+        info!(target: "hd_api::oauth2", "oauth2: Exchanging code");
         if self.state != LogInState::ReceivedCode {
             return Err(anyhow::Error::msg(format!(
                 "LogInFlow: wrong state {:?}: no code obtained yet!",
@@ -376,6 +385,7 @@ impl LogInFlow {
             self.token_url, self.cs.client_id, self.cs.client_secret, code
         );
         self.state = LogInState::ExchangingCode;
+        info!(target: "hd_api::oauth2", "LogInFlow: ExchangingCode");
         let cl = reqwest::Client::new();
         let req = cl
             .post(url)
@@ -388,6 +398,7 @@ impl LogInFlow {
         let body = String::from_utf8(resp.bytes().await?.into_iter().collect())?;
         let token = from_str(&body)?;
         self.state = LogInState::Complete;
+        info!(target: "hd_api::oauth2", "LogInFlow: Complete");
         Ok(token)
     }
 }
@@ -437,15 +448,15 @@ impl RedirectHandlingServer {
             }
         });
         let srv = server::Server::bind(&([127, 0, 0, 1], self.port).into()).serve(mkservice);
-        info!(target: "hd_api", "Bound server for code callback...");
+        info!(target: "hd_api::oauth2", "Bound server for code callback...");
         // Wait for handler to signal arrival of request.
         let graceful = srv.with_graceful_shutdown(async move {
             sdr.recv().await;
             ()
         });
-        info!(target: "hd_api", "Started server for code callback...");
+        info!(target: "hd_api::oauth2", "Started server for code callback...");
         graceful.await.expect("server error!");
-        info!(target: "hd_api", "OAuth callback succeeded");
+        info!(target: "hd_api::oauth2", "OAuth callback succeeded");
         match r.recv().await {
             Some(l) => l,
             None => LogInResult::Err {
@@ -462,7 +473,7 @@ impl RedirectHandlingServer {
         err_body: String,
     ) -> anyhow::Result<hyper::Response<hyper::Body>> {
         shutdown.send(()).await.expect("shutdown: mpsc error");
-        info!(target: "hd_api", "Received OAuth callback");
+        info!(target: "hd_api::oauth2", "Received OAuth callback");
         let response_builder = hyper::Response::builder().status(hyper::StatusCode::OK);
         let q = rq.uri().query();
         let q = match q {

@@ -1,19 +1,29 @@
+use crate::hashing::Hash;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiError {
-    msg: String,
-    code: String,
-    auth: Option<String>,
+    pub msg: String,
+    pub code: String,
+    pub auth: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Folder {
-    id: String,
-    path: String,
-    size: usize,
+pub struct HashedBlock {
+    pub hash: Hash,
+    pub level: usize,
+    pub block: usize,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileHash {
+    pub level: usize,
+    pub chash: Hash,
+    pub list: Vec<Vec<HashedBlock>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -34,6 +44,14 @@ pub struct Protocols {
     scp: bool,
     cifs: bool,
     git: bool,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Folder {
+    id: String,
+    path: String,
+    size: usize,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

@@ -4,13 +4,17 @@ use hd_api::{hidrive, oauth2};
 
 use anyhow;
 use reqwest;
-use serde_json::to_string_pretty;
 use tokio;
 
 async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
     let mut p = hidrive::Params::new();
     p.add_str("path", "/users/lebohd0/hd_api/test.txt");
     let n = u.get(tokio::io::stdout(), Some(&p)).await?;
+    println!("Got {} bytes.", n);
+    p.add_int("level", 0);
+    p.add_str("ranges", "0-100");
+    let h = u.hash(&p).await?;
+    println!("Hash: {:?}", h);
     Ok(())
 }
 

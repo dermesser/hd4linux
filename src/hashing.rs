@@ -1,3 +1,6 @@
+use crate::types;
+
+use std::collections::HashMap;
 use std::fmt::{self, Display, Formatter};
 use std::path::Path;
 use std::time;
@@ -17,7 +20,7 @@ const HASH_BYTES: usize = 20;
 const BLOCK_SIZE: usize = 4096;
 const LEVEL_GROUP: usize = 256;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Hash([u8; HASH_BYTES]);
 
 impl Hash {
@@ -182,6 +185,32 @@ impl Hashes {
     /// Return the hash of the entire file's hash tree, which is used as `chash` in the API.
     pub fn top_hash<'a>(&'a self) -> &'a Hash {
         &self.l[self.l.len() - 1].h[0]
+    }
+
+    pub fn from_api_hashes(ah: &Vec<types::HashedBlock>) -> Result<Hashes> {
+        let mut by_level: HashMap<usize, Vec<(usize, Hash)>> = HashMap::new();
+        let mut max_level = 0;
+        for hb in ah.iter() {
+            by_level
+                .entry(hb.level)
+                .and_modify(|e| e.push((hb.block, hb.hash.clone())))
+                .or_insert_with(|| vec![(hb.block, hb.hash.clone())]);
+            max_level = usize::max(max_level, hb.level);
+        }
+        let mut hash_levels = vec![];
+        for i in 0..max_level + 1 {
+            if let Some(mut hashes) = by_level.remove(&i) {
+                hashes.sort_by(|(ref k, ref _v), (ref kk, ref _vv)| k.cmp(kk));
+                hash_levels.push(HashLevel {
+                    h: hashes.into_iter().map(|(_, v)| v).collect(),
+                });
+            } else {
+                return Err(anyhow::Error::msg(
+                    "Missing hash level in API response: this is an API error",
+                ));
+            }
+        }
+        Ok(Hashes { l: hash_levels })
     }
 }
 
@@ -417,6 +446,7 @@ mod tests {
     // Only works with correct mtime, i.e. not in CI.
     // Set mtime using `touch -m --date=@1234567890 testdata/sample.bin`
     //#[tokio::test]
+    #[allow(dead_code)]
     async fn test_mhash_file() {
         assert_eq!(
             "449fee596b27c879052e9d82366cb5d63ebaf6f6",
@@ -429,10 +459,48 @@ mod tests {
 
     #[tokio::test]
     async fn test_file_hashes() {
-        let (nh, mh, ch) = super::file_hashes("testdata/sample.bin").await.unwrap();
+        let (nh, _mh, ch) = super::file_hashes("testdata/sample.bin").await.unwrap();
         assert_eq!("7220d977d2db4499f333bfff421158b9815a686f", nh.to_string());
         // Only works with correct mtime, i.e. not in CI.
         //assert_eq!("449fee596b27c879052e9d82366cb5d63ebaf6f6", mh.to_string());
         assert_eq!("fd0da83a93d57dd4e514c8641088ba1322aa6947", ch.to_string());
+    }
+
+    #[test]
+    fn test_api_hashes_parsing() {
+        let json = r#"{
+    "level": 1,
+    "chash": "126c9798b09a51d069a8f5bcef5174a41ef9e7ea",
+    "list": [
+                [
+                  {
+                    "hash": "55752d29f8c8532e7d01b2e747428217262e0bec",
+                    "level": 0,
+                    "block": 0
+                  },
+                  {
+                    "hash": "a18d31e22d0a4887b8edf6726d5ea51f7203e649",
+                    "level": 0,
+                    "block": 1
+                  },
+                  {
+                    "hash": "a40a462a40337331c40734b3d999483401adef3c",
+                    "level": 0,
+                    "block": 3
+                  },
+                  {
+                    "hash": "09f287ce4192aa31286e2445615f8700300dc9bb",
+                    "level": 0,
+                    "block": 8
+                  }
+                ]
+            ]
+}"#;
+        let ah: crate::types::FileHash = serde_json::from_str(json).unwrap();
+        println!("{:?}", ah);
+
+        let hashes = super::Hashes::from_api_hashes(&ah.list[0]).unwrap();
+        assert_eq!(1, hashes.l.len());
+        assert_eq!(4, hashes.l[0].h.len());
     }
 }
