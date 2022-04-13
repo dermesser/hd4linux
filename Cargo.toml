@@ -18,7 +18,7 @@ rolling-dual-crc = "~0.1"
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = "~1.0"
 sha1 = "~0.10"
-time = "~0.3"
+time = { version = "~0.3", features = ["serde"] }
 tokio = { version = "~1.17", features = ["rt", "macros", "sync", "fs", "io-util", "io-std"] }
 
 [dev-dependencies]
