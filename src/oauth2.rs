@@ -409,11 +409,38 @@ impl LogInFlow {
 
 // The following ones are only pub for debugging.
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct OAuthError {
+    error: String,
+    error_description: String,
+}
+
+impl std::error::Error for OAuthError {}
+
+impl Display for OAuthError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "OAuth2 error {}: {}",
+            self.error, self.error_description
+        ))
+    }
+}
+
 // So far only a normal Result, but can be extended.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 enum LogInResult {
     Ok { code: String },
-    Err { err: String },
+    Err { err: OAuthError },
+}
+
+impl Display for LogInResult {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            LogInResult::Ok { code } => f.write_fmt(format_args!("Login OK, code = {}", code)),
+            LogInResult::Err { err } => f.write_fmt(format_args!("{}", err)),
+        }
+    }
 }
 
 struct RedirectHandlingServer {
@@ -463,7 +490,10 @@ impl RedirectHandlingServer {
         match r.recv().await {
             Some(l) => l,
             None => LogInResult::Err {
-                err: "mpsc error: sender closed prematurely!".into(),
+                err: OAuthError {
+                    error_description: "mpsc error: sender closed prematurely!".into(),
+                    error: "clientside".into(),
+                },
             },
         }
     }
@@ -483,7 +513,11 @@ impl RedirectHandlingServer {
             None => {
                 result
                     .send(LogInResult::Err {
-                        err: "No query string was supplied by the callback request!".into(),
+                        err: OAuthError {
+                            error_description:
+                                "no query string was supplied by the callback request".into(),
+                            error: "clientside".into(),
+                        },
                     })
                     .await
                     .expect("result: mpsc error");
@@ -511,7 +545,11 @@ impl RedirectHandlingServer {
         } else {
             result
                 .send(LogInResult::Err {
-                    err: "No 'code' parameter found in callback request!".into(),
+                    err: OAuthError {
+                        error_description: "no 'code' parameter supplied in callback request"
+                            .into(),
+                        error: "clientside".into(),
+                    },
                 })
                 .await
                 .expect("mpsc send error");
@@ -548,7 +586,11 @@ mod tests {
             (
                 "http://localhost:8087/?",
                 oauth2::LogInResult::Err {
-                    err: "No 'code' parameter found in callback request!".into(),
+                    err: super::OAuthError {
+                        error_description: "no 'code' parameter supplied in callback request"
+                            .into(),
+                        error: "clientside".into(),
+                    },
                 },
             ),
         ] {
@@ -557,7 +599,7 @@ mod tests {
             });
 
             let lir = rdr.start_and_wait_for_code().await;
-            assert_eq!(lir, resp);
+            assert_eq!(format!("{}", lir), format!("{}", resp));
         }
     }
 
