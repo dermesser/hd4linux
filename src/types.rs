@@ -1,14 +1,34 @@
 use crate::hashing::Hash;
 
+use std::fmt::{self, Display, Formatter};
+
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiError {
     pub msg: String,
-    pub code: String,
+    pub code: usize,
     pub auth: Option<String>,
 }
+
+impl Display for ApiError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if self.auth.is_none() {
+            f.write_fmt(format_args!("ApiError {}: {}", self.code, self.msg))
+        } else {
+            f.write_fmt(format_args!(
+                "ApiError {}: {} {}",
+                self.code,
+                self.msg,
+                self.auth.as_ref().unwrap()
+            ))
+        }
+    }
+}
+
+impl std::error::Error for ApiError {}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -48,10 +68,73 @@ pub struct Protocols {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Folder {
-    id: String,
+pub struct Item {
     path: String,
-    size: usize,
+    name: Option<String>,
+    size: Option<usize>,
+    #[serde(rename = "type")]
+    typ: Option<String>,
+
+    id: Option<String>,
+    parent_id: Option<String>,
+
+    has_dirs: Option<bool>,
+    nmembers: Option<usize>,
+    members: Vec<Item>,
+
+    #[serde(with = "time::serde::timestamp::option")]
+    ctime: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::timestamp::option")]
+    mtime: Option<OffsetDateTime>,
+
+    chash: Option<Hash>,
+    mhash: Option<Hash>,
+    nhash: Option<Hash>,
+    mohash: Option<Hash>,
+
+    readable: Option<bool>,
+    writable: Option<bool>,
+    shareable: Option<bool>,
+    teamfolder: Option<bool>,
+
+    rshare: Option<Share>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Share {
+    name: Option<String>,
+    path: Option<String>,
+    id: Option<String>,
+    pid: Option<String>,
+    size: Option<usize>,
+    status: Option<String>,
+
+    viewmode: Option<String>,
+    share_type: Option<String>,
+    file_type: Option<String>,
+
+    #[serde(with = "time::serde::timestamp::option")]
+    created: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::timestamp::option")]
+    last_modified: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::timestamp::option")]
+    valid_until: Option<OffsetDateTime>,
+    ttl: Option<usize>,
+
+    // Only included if set.
+    password: Option<bool>,
+    has_password: Option<bool>,
+    is_encrypted: Option<bool>,
+
+    uri: Option<String>,
+    count: Option<usize>,
+    // Only included if set.
+    maxcount: Option<usize>,
+    remaining: Option<usize>,
+
+    readable: Option<bool>,
+    writable: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -69,5 +152,5 @@ pub struct User {
     alias: String,
     home: String,
     home_id: String,
-    folder: Folder,
+    folder: Item,
 }
