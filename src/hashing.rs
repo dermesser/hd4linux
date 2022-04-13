@@ -20,7 +20,7 @@ const HASH_BYTES: usize = 20;
 const BLOCK_SIZE: usize = 4096;
 const LEVEL_GROUP: usize = 256;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Hash([u8; HASH_BYTES]);
 
 impl Hash {
@@ -111,6 +111,12 @@ impl Display for Hash {
                 self.0[17],
                 self.0[18],
                 self.0[19]))
+    }
+}
+
+impl fmt::Debug for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
