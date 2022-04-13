@@ -159,8 +159,8 @@ async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response)
     } else {
         let body = rp.text().await?;
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        warn!(target: "hd_api::hidrive", "Received HTTP error {}: {}", status, serde_json::to_string(&e)?);
-        Err(Error::msg(format!("Error from API: {:?}", e)))
+        warn!(target: "hd_api::hidrive", "Received HTTP error {}: {:?}", status, e);
+        Err(Error::new(e))
     }
 }
 
@@ -295,7 +295,7 @@ async fn write_response_to_file<D: AsyncWrite + Unpin>(
     } else {
         let body = rp.text().await?;
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        Err(Error::msg(format!("Error from API: {:?}", e)))
+        Err(Error::new(e))
     }
 }
 
@@ -319,8 +319,29 @@ impl<'a> HiDriveFiles<'a> {
         .await
     }
 
-    pub async fn hash<P: serde::Serialize + ?Sized>(&mut self, p: &P) -> Result<FileHash> {
+    pub async fn get_dir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
+        let u = format!("{}/dir", self.hd.base_url);
+        gen_call(self.hd, reqwest::Method::GET, u, &p, NO_PARAMS, NO_BODY).await
+    }
+
+    pub async fn hash<P: serde::Serialize + ?Sized>(
+        &mut self,
+        level: isize,
+        ranges: &[(usize, usize)],
+        p: Option<&P>,
+    ) -> Result<FileHash> {
         let u = format!("{}/file/hash", self.hd.base_url);
-        gen_call(self.hd, reqwest::Method::GET, u, p, NO_PARAMS, NO_BODY).await
+        let mut rqp = Params::new();
+        rqp.add_int("level", level);
+        if ranges.is_empty() {
+            rqp.add_str("ranges", "-");
+        } else {
+            let r = ranges
+                .iter()
+                .map(|(a, b)| format!("{}-{}", a, b))
+                .fold(String::new(), |s, e| (s + ",") + &e);
+            rqp.add_str("ranges", &r[1..]);
+        }
+        gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await
     }
 }
