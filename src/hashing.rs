@@ -38,7 +38,7 @@ impl Hash {
         let sha1 = sha1.as_ref();
         if sha1.len() != 2 * HASH_BYTES {
             return Err(anyhow::Error::msg(
-                "Hash::parse: SHA-1 string must have 20 characters",
+                "Hash::parse: SHA-1 string must have 40 characters",
             ));
         }
         let mut h = Hash::new();
