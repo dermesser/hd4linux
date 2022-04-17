@@ -24,8 +24,8 @@ pub struct ClientSecret {
 }
 
 impl ClientSecret {
-    /// Returns client_id and client_secret. The file must contain a JSON object
-    /// with at least the fields client_id and client_secret of type string.
+    /// Returns a client secret. The file must contain a JSON object
+    /// with at least the fields `client_id` and `client_secret` of type string.
     pub async fn load(p: impl AsRef<std::path::Path>) -> anyhow::Result<ClientSecret> {
         let mut s = String::new();
         fs::OpenOptions::new()
@@ -38,16 +38,18 @@ impl ClientSecret {
     }
 }
 
-/// A JSON object looking like this:
+/// Credentials are deserialized from a JSON object looking like this:
+/// ```
 /// {
 ///   "refresh_token": "rt-abcdeabcde",
 ///   "expires_in": 3600,
 ///   "userid": "12345.12345.12345",
 ///   "access_token": "ssklnLKwerlnc9sal",
-///   "alias": "lebohd0",
+///   "alias": "uvwxyz",
 ///   "token_type": "Bearer",
 ///   "scope": "ro,user"
 /// }
+/// ```
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Credentials {
     refresh_token: String,
@@ -89,6 +91,8 @@ impl Credentials {
     }
 }
 
+/// Authorizer is responsible for issuing Bearer tokens to HTTP requests, refreshing the access
+/// token when necessary.
 pub struct Authorizer {
     cred: Credentials,
     cs: ClientSecret,
@@ -209,21 +213,26 @@ pub struct LogInFlow {
     authz_code: Option<String>,
 }
 
+/// Application role
 #[derive(Debug, Clone)]
 pub enum Role {
     User,
     Admin,
     Owner,
 }
+
+/// (Im)mutable access level
 #[derive(Debug, Clone)]
 pub enum Access {
     Ro,
     Rw,
 }
+
+/// Access scope requested by an application.
 #[derive(Debug, Clone)]
 pub struct Scope {
-    role: Role,
-    access: Access,
+    pub role: Role,
+    pub access: Access,
 }
 
 impl Display for Role {

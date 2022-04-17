@@ -1,3 +1,10 @@
+//! HiDrive access is mediated through the structs in this module.
+//!
+//! Everywhere you see a `P` type parameter, URL parameters are expected. An easy way to supply
+//! them is the `Params` type. You can use other types, though, as long as they serialize to a list
+//! of pairs, such as `&[(T0, T1)]` or `BTreeMap<T0, T1>`.
+//!
+
 use crate::oauth2;
 use crate::types::*;
 
@@ -251,7 +258,7 @@ impl<'a> HiDrivePermission<'a> {
     /// Optional parameters: `pid, account, fields`.
     pub async fn get_permission<S: AsRef<str>, P: serde::Serialize + ?Sized>(
         &mut self,
-        path: S,
+        path: &S,
         p: Option<&P>,
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
@@ -264,7 +271,7 @@ impl<'a> HiDrivePermission<'a> {
     /// Optional parameters: `pid, account, invite_id, readable, writable` for P.
     pub async fn set_permission<S: AsRef<str>, P: serde::Serialize + ?Sized>(
         &mut self,
-        path: S,
+        path: &S,
         p: Option<&P>,
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
@@ -300,6 +307,7 @@ async fn write_response_to_file<D: AsyncWrite + Unpin>(
 }
 
 impl<'a> HiDriveFiles<'a> {
+    /// Download file.
     pub async fn get<P: serde::Serialize + ?Sized, D: AsyncWrite + Unpin>(
         &mut self,
         out: D,
@@ -319,11 +327,44 @@ impl<'a> HiDriveFiles<'a> {
         .await
     }
 
+    /// Return metadata for directory.
+    ///
+    /// Specify either `pid` or `path`.
+    ///
+    /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
     pub async fn get_dir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
         gen_call(self.hd, reqwest::Method::GET, u, &p, NO_PARAMS, NO_BODY).await
     }
 
+    /// Create directory.
+    ///
+    /// Further parameters: `pid, on_exist, mtime, parent_mtime`.
+    pub async fn mkdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+        &mut self,
+        path: &S,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/dir", self.hd.base_url);
+        let mut rp = Params::new();
+        rp.add_str("path", path);
+        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+    }
+
+    /// Remove directory.
+    ///
+    /// Further parameters: `path, pid, recursive, parent_mtime`.
+    pub async fn rmdir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
+        let u = format!("{}/dir", self.hd.base_url);
+        gen_call(self.hd, reqwest::Method::DELETE, u, &p, NO_PARAMS, NO_BODY).await
+    }
+
+    /// Get file or directory hash.
+    ///
+    /// Parameters: `path, pid` (specifying either is mandatory).
+    ///
+    /// Get hash for given level and ranges. If ranges is empty, return hashes for entire file (but
+    /// at most 256).
     pub async fn hash<P: serde::Serialize + ?Sized>(
         &mut self,
         level: isize,
@@ -343,5 +384,20 @@ impl<'a> HiDriveFiles<'a> {
             rqp.add_str("ranges", &r[1..]);
         }
         gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await
+    }
+
+    /// Rename operation.
+    ///
+    /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
+    /// {autoname, overwrite}, parent_mtime (int)'.
+    pub async fn rename<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+        &mut self,
+        name: &S,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/rename", self.hd.base_url);
+        let mut rp = Params::new();
+        rp.add_str("name", name);
+        gen_call(self.hd, reqwest::Method::GET, u, &rp, p, NO_BODY).await
     }
 }

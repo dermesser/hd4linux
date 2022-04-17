@@ -20,6 +20,7 @@ const HASH_BYTES: usize = 20;
 const BLOCK_SIZE: usize = 4096;
 const LEVEL_GROUP: usize = 256;
 
+/// A SHA1 hash.
 #[derive(Clone, Default)]
 pub struct Hash([u8; HASH_BYTES]);
 
@@ -120,6 +121,7 @@ impl fmt::Debug for Hash {
     }
 }
 
+/// A Hash level (see HiDrive documentation). Contains one hash per block.
 #[derive(Debug)]
 pub struct HashLevel {
     h: Vec<Hash>,
@@ -295,6 +297,7 @@ pub async fn chash<R: AsyncRead + Unpin>(mut r: R) -> Result<Hashes> {
     Ok(hashes)
 }
 
+/// Calculate a `chash` for a directory.
 pub fn chash_dir(mhashes: &[Hash], chashes: &[Hash]) -> Hash {
     let mut h = Hash::new();
     for mh in mhashes {
