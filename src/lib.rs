@@ -1,6 +1,5 @@
 //! This crate provides access to the HiDrive HTTP API, including OAuth flow.
 
-
 mod chunking;
 pub mod hashing;
 pub mod hidrive;
@@ -9,4 +8,4 @@ pub mod types;
 
 pub use hidrive::HiDrive;
 
-pub use oauth2::{Authorizer, Credentials, ClientSecret};
+pub use oauth2::{Authorizer, ClientSecret, Credentials};

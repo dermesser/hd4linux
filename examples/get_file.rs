@@ -1,5 +1,5 @@
-use simple_logger;
 use log::info;
+use simple_logger;
 
 use hd_api::{hidrive, oauth2};
 
@@ -10,7 +10,10 @@ use tokio;
 async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
     let mut p = hidrive::Params::new();
     p.add_str("path", "/users/lebohd0/hd_api");
-    p.add_str("fields", "name,id,parent_id,nmembers,type,members,readable,writable");
+    p.add_str(
+        "fields",
+        "name,id,parent_id,nmembers,type,members,readable,writable",
+    );
     info!(target: "get_file", "Checking directory...");
     let dir = u.get_dir(Some(&p)).await?;
     println!("{:?}", dir);
@@ -20,7 +23,7 @@ async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
     let n = u.get(tokio::io::stdout(), Some(&p)).await?;
     println!("Got {} bytes.", n);
 
-    let h = u.hash(0, &[(0,100)], Some(&p)).await?;
+    let h = u.hash(0, &[(0, 100)], Some(&p)).await?;
     println!("Hash: {:?}", h);
 
     Ok(())

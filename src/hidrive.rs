@@ -19,8 +19,10 @@ use serde::{de::DeserializeOwned, ser::SerializeSeq};
 use serde_json;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-const NO_BODY: Option<reqwest::Body> = None;
-const NO_PARAMS: Option<&Params> = None;
+pub const NO_BODY: Option<reqwest::Body> = None;
+/// Use this if you don't want to supply options to a method. This prevents type errors due to
+/// unknown inner type of Option.
+pub const NO_PARAMS: Option<&Params> = None;
 
 pub enum ParamValue {
     String(String),
@@ -329,12 +331,23 @@ impl<'a> HiDriveFiles<'a> {
 
     /// Return metadata for directory.
     ///
-    /// Specify either `pid` or `path`.
+    /// Specify either `pid` or `path`, or the request will fail.
     ///
     /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
     pub async fn get_dir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
-        gen_call(self.hd, reqwest::Method::GET, u, &p, NO_PARAMS, NO_BODY).await
+        gen_call(self.hd, reqwest::Method::GET, u, &Params::new(), p, NO_BODY).await
+    }
+
+    /// Return metadata for home directory.
+    ///
+    /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
+    pub async fn get_home_dir<P: serde::Serialize + ?Sized>(
+        &mut self,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/dir/home", self.hd.base_url);
+        gen_call(self.hd, reqwest::Method::GET, u, &Params::new(), p, NO_BODY).await
     }
 
     /// Create directory.
@@ -357,6 +370,51 @@ impl<'a> HiDriveFiles<'a> {
     pub async fn rmdir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
         gen_call(self.hd, reqwest::Method::DELETE, u, &p, NO_PARAMS, NO_BODY).await
+    }
+
+    /// Copy directory.
+    ///
+    /// Further parameters: `src, src_id, dst_id, on_exist, snapshot, snaptime, dst_parent_mtime,
+    /// preserve_mtime`.
+    pub async fn cpdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+        &mut self,
+        dst: &S,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/dir/copy", self.hd.base_url);
+        let mut rp = Params::new();
+        rp.add_str("dst", dst);
+        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+    }
+
+    /// Move directory.
+    ///
+    /// Further parameters: `src, src_id, dst_id, on_exist, src_parent_mtime, dst_parent_mtime,
+    /// preserve_mtime`.
+    pub async fn mvdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+        &mut self,
+        dst: &S,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/dir/move", self.hd.base_url);
+        let mut rp = Params::new();
+        rp.add_str("dst", dst);
+        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+    }
+
+    /// Rename directory.
+    ///
+    /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
+    /// {autoname, overwrite}, parent_mtime (int)'.
+    pub async fn renamedir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+        &mut self,
+        name: &S,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/dir/rename", self.hd.base_url);
+        let mut rp = Params::new();
+        rp.add_str("name", name);
+        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
     }
 
     /// Get file or directory hash.
