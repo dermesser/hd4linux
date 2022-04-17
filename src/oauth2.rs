@@ -39,7 +39,7 @@ impl ClientSecret {
 }
 
 /// Credentials are deserialized from a JSON object looking like this:
-/// ```
+/// ```ignore
 /// {
 ///   "refresh_token": "rt-abcdeabcde",
 ///   "expires_in": 3600,
