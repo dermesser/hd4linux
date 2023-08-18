@@ -131,6 +131,8 @@ impl Authorizer {
 
     /// Returns a Bearer token for subsequent use.
     pub async fn token(&mut self) -> anyhow::Result<String> {
+        // TODO: cache current token on disk and use it if not elapsed yet. This saves one oauth
+        // roundtrip.
         match self.current_token {
             None => (),
             Some((ref t, ref c)) => {
@@ -290,7 +292,7 @@ impl Display for Lang {
 }
 
 // TODO: These could be read from the client secret file.
-const DEFAULT_AUTHORIZATION_URL: &str = "https://my.hidrive.com/client/authorize";
+const DEFAULT_AUTHORIZATION_URL: &str = "https://my.hidrive.com/oauth2/authorize";
 const DEFAULT_TOKEN_URL: &str = "https://my.hidrive.com/oauth2/token";
 const DEFAULT_BODY_RESPONSE: &str = r"
 <html>

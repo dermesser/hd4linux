@@ -329,6 +329,10 @@ impl<'a> HiDriveFiles<'a> {
         .await
     }
 
+    /*pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
+
+    }*/
+
     /// Return metadata for directory.
     ///
     /// Specify either `pid` or `path`, or the request will fail.
