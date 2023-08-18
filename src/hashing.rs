@@ -167,8 +167,8 @@ impl HashLevel {
                 continue;
             }
             let mut h = Sha1::new();
-            h.update(&self.h[i].0);
-            h.update(&[i as u8]);
+            h.update(self.h[i].0);
+            h.update([i as u8]);
             let hash = h.finalize();
             current_sum = add_hashes(current_sum, hash.as_slice());
         }
@@ -279,7 +279,7 @@ pub async fn chash<R: AsyncRead + Unpin>(mut r: R) -> Result<Hashes> {
         // Only hash a block if it has non-zero bytes in it.
         if buf.iter().any(|e| *e != 0) {
             let mut h = Sha1::new();
-            h.update(&buf);
+            h.update(buf);
             let hash = h.finalize();
             hash_arr.0.copy_from_slice(hash.as_slice());
         }

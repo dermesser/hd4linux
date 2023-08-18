@@ -3,6 +3,7 @@ use rolling_dual_crc::RollingDualCrc;
 
 use tokio::io::{AsyncBufRead, AsyncReadExt};
 
+#[allow(unused)]
 pub async fn find_borders<R: AsyncBufRead + Unpin>(
     r: &mut R,
     window_size: usize,

@@ -179,8 +179,9 @@ impl Authorizer {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub enum LogInState {
+    #[default]
     Start,          // Next: WaitingForCode or ReceivedCode
     WaitingForCode, // Next: ReceivedCode
     ReceivedCode,   // Next: ExchangingCode
@@ -188,12 +189,6 @@ pub enum LogInState {
     Complete,
 
     Error,
-}
-
-impl Default for LogInState {
-    fn default() -> LogInState {
-        LogInState::Start
-    }
 }
 
 /// LogInFlow implements the process authorizing us to access a user's HiDrive.
@@ -262,20 +257,15 @@ impl Display for Scope {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum Lang {
     De,
+    #[default]
     En,
     Es,
     Fr,
     Nl,
     Pt,
-}
-
-impl Default for Lang {
-    fn default() -> Lang {
-        Lang::En
-    }
 }
 
 impl Display for Lang {

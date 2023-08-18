@@ -237,7 +237,7 @@ pub struct HiDriveUser<'a> {
 impl<'a> HiDriveUser<'a> {
     pub async fn me<P: serde::Serialize + ?Sized>(&mut self, params: Option<&P>) -> Result<User> {
         let u = format!("{}/user/me", self.hd.base_url);
-        return gen_call(
+        gen_call(
             self.hd,
             reqwest::Method::GET,
             u,
@@ -245,7 +245,7 @@ impl<'a> HiDriveUser<'a> {
             params,
             NO_BODY,
         )
-        .await;
+        .await
     }
 }
 
@@ -265,7 +265,7 @@ impl<'a> HiDrivePermission<'a> {
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
         let rqp = &[("path", path.as_ref().to_string())];
-        return gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await;
+        gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await
     }
 
     /// PUT /2.1/permission
@@ -297,7 +297,7 @@ async fn write_response_to_file<D: AsyncWrite + Unpin>(
         let mut i = 0;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            d.write(chunk.as_ref()).await?;
+            d.write_all(chunk.as_ref()).await?;
             i += chunk.len();
         }
         Ok(i)
