@@ -220,8 +220,6 @@ async fn gen_call_cb<
     };
     info!(target: "hd_api::hidrive", "Sending HTTP request: {:?}", rqb);
     let rp = rqb.send().await?;
-
-    info!(target: "hd_api::hidrive", "Received HTTP response: {:?}", rp);
     cb(rp).await
 }
 
