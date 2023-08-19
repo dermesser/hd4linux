@@ -12,7 +12,7 @@ use std::collections::LinkedList;
 use std::fmt::{Display, Formatter};
 
 use anyhow::{self, Context, Error, Result};
-use futures::StreamExt;
+use futures_util::{Future, StreamExt};
 use log::{self, info, warn};
 use reqwest;
 use serde::{de::DeserializeOwned, ser::SerializeSeq};
@@ -196,7 +196,7 @@ async fn gen_call_cb<
     P: serde::Serialize + ?Sized,
     RP: serde::Serialize + ?Sized,
     RT,
-    RF: futures::Future<Output = Result<RT>>,
+    RF: Future<Output = Result<RT>>,
     CB: FnOnce(reqwest::Response) -> RF,
     BT: Into<reqwest::Body>,
 >(
