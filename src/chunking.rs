@@ -41,7 +41,7 @@ mod tests {
             .unwrap();
         let mut bf = tokio::io::BufReader::new(f);
 
-        find_borders(&mut bf, 32, 10).await?;
+        find_borders(&mut bf, 32, 10).await
     }
 
     #[tokio::test]
