@@ -145,17 +145,6 @@ impl HiDrive {
     pub fn files(&mut self) -> HiDriveFiles<'_> {
         HiDriveFiles { hd: self }
     }
-
-    async fn new_request<U: reqwest::IntoUrl>(
-        &mut self,
-        method: reqwest::Method,
-        url: U,
-    ) -> Result<reqwest::RequestBuilder> {
-        self.authz
-            .authorize(self.client.request(method, url))
-            .await
-            .context("HiDrive::new_request: Building authorized RequestBuilder")
-    }
 }
 
 /// Interact with user information.

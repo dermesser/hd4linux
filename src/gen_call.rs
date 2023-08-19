@@ -82,6 +82,7 @@ pub async fn gen_call_cb<
         rqb
     };
     info!(target: "hd_api::hidrive", "Sending HTTP request: {:?}", rqb);
+    // TODO: handle errors better and add retry logic.
     let rp = rqb.send().await?;
     cb(rp).await
 }
