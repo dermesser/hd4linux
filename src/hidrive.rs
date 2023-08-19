@@ -5,6 +5,7 @@
 //! of pairs, such as `&[(T0, T1)]` or `BTreeMap<T0, T1>`.
 //!
 
+use crate::gen_call::{gen_call, gen_call_cb};
 use crate::oauth2;
 use crate::types::*;
 
@@ -12,10 +13,9 @@ use std::collections::LinkedList;
 use std::fmt::{Display, Formatter};
 
 use anyhow::{self, Context, Error, Result};
-use futures_util::{Future, StreamExt};
-use log::{self, info, warn};
+use futures_util::StreamExt;
 use reqwest;
-use serde::{de::DeserializeOwned, ser::SerializeSeq};
+use serde::ser::SerializeSeq;
 use serde_json;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
@@ -158,71 +158,6 @@ impl HiDrive {
     }
 }
 
-/// This is a callback for gen_call_cb, deserializing the response to JSON.
-async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response) -> Result<RT> {
-    let status = rp.status();
-    if status.is_success() {
-        let body = rp.text().await?;
-        info!(target: "hd_api::hidrive", "Received HTTP response 200, body: {}", body);
-        Ok(serde_json::from_reader(body.as_bytes())?)
-    } else {
-        let body = rp.text().await?;
-        let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        warn!(target: "hd_api::hidrive", "Received HTTP error {}: {:?}", status, e);
-        Err(Error::new(e))
-    }
-}
-
-async fn gen_call<
-    U: reqwest::IntoUrl,
-    P: serde::Serialize + ?Sized,
-    RP: serde::Serialize + ?Sized,
-    RT: DeserializeOwned,
-    BT: Into<reqwest::Body>,
->(
-    hd: &mut HiDrive,
-    method: reqwest::Method,
-    url: U,
-    required: &RP,
-    optional: Option<&P>,
-    body: Option<BT>,
-) -> Result<RT> {
-    gen_call_cb(hd, method, url, required, optional, body, read_body_to_json).await
-}
-
-/// Generic call to an API endpoint.
-async fn gen_call_cb<
-    U: reqwest::IntoUrl,
-    P: serde::Serialize + ?Sized,
-    RP: serde::Serialize + ?Sized,
-    RT,
-    RF: Future<Output = Result<RT>>,
-    CB: FnOnce(reqwest::Response) -> RF,
-    BT: Into<reqwest::Body>,
->(
-    hd: &mut HiDrive,
-    method: reqwest::Method,
-    url: U,
-    required: &RP,
-    optional: Option<&P>,
-    body: Option<BT>,
-    cb: CB,
-) -> Result<RT> {
-    let rqb = hd.new_request(method, url).await?;
-    let mut rqb = rqb.query(required);
-    if let Some(body) = body {
-        rqb = rqb.body(body);
-    }
-    let rqb = if let Some(params) = optional {
-        rqb.query(params)
-    } else {
-        rqb
-    };
-    info!(target: "hd_api::hidrive", "Sending HTTP request: {:?}", rqb);
-    let rp = rqb.send().await?;
-    cb(rp).await
-}
-
 /// Interact with user information.
 pub struct HiDriveUser<'a> {
     hd: &'a mut HiDrive,
@@ -236,7 +171,8 @@ impl<'a> HiDriveUser<'a> {
     pub async fn me<P: serde::Serialize + ?Sized>(&mut self, params: Option<&P>) -> Result<User> {
         let u = format!("{}/user/me", self.hd.base_url);
         gen_call(
-            self.hd,
+            &mut self.hd.client,
+            &mut self.hd.authz,
             reqwest::Method::GET,
             u,
             &Params::new(),
@@ -263,7 +199,16 @@ impl<'a> HiDrivePermission<'a> {
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
         let rqp = &[("path", path.as_ref().to_string())];
-        gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::GET,
+            u,
+            &rqp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// PUT /2.1/permission
@@ -276,7 +221,16 @@ impl<'a> HiDrivePermission<'a> {
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
         let rqp = &[("path", path.as_ref().to_string())];
-        gen_call(self.hd, reqwest::Method::PUT, u, &rqp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::PUT,
+            u,
+            &rqp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 }
 
@@ -316,7 +270,8 @@ impl<'a> HiDriveFiles<'a> {
         let cb = move |rp: reqwest::Response| write_response_to_file(rp, out);
         let u = format!("{}/file", self.hd.base_url);
         gen_call_cb(
-            self.hd,
+            &mut self.hd.client,
+            &mut self.hd.authz,
             reqwest::Method::GET,
             u,
             &Params::new(),
@@ -338,7 +293,16 @@ impl<'a> HiDriveFiles<'a> {
     /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
     pub async fn get_dir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
-        gen_call(self.hd, reqwest::Method::GET, u, &Params::new(), p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::GET,
+            u,
+            &Params::new(),
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Return metadata for home directory.
@@ -349,7 +313,16 @@ impl<'a> HiDriveFiles<'a> {
         p: Option<&P>,
     ) -> Result<Item> {
         let u = format!("{}/dir/home", self.hd.base_url);
-        gen_call(self.hd, reqwest::Method::GET, u, &Params::new(), p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::GET,
+            u,
+            &Params::new(),
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Create directory.
@@ -363,7 +336,16 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir", self.hd.base_url);
         let mut rp = Params::new();
         rp.add_str("path", path);
-        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::POST,
+            u,
+            &rp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Remove directory.
@@ -371,7 +353,16 @@ impl<'a> HiDriveFiles<'a> {
     /// Further parameters: `path, pid, recursive, parent_mtime`.
     pub async fn rmdir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
-        gen_call(self.hd, reqwest::Method::DELETE, u, &p, NO_PARAMS, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::DELETE,
+            u,
+            &p,
+            NO_PARAMS,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Copy directory.
@@ -386,7 +377,16 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir/copy", self.hd.base_url);
         let mut rp = Params::new();
         rp.add_str("dst", dst);
-        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::POST,
+            u,
+            &rp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Move directory.
@@ -401,7 +401,16 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir/move", self.hd.base_url);
         let mut rp = Params::new();
         rp.add_str("dst", dst);
-        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::POST,
+            u,
+            &rp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Rename directory.
@@ -416,7 +425,16 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir/rename", self.hd.base_url);
         let mut rp = Params::new();
         rp.add_str("name", name);
-        gen_call(self.hd, reqwest::Method::POST, u, &rp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::POST,
+            u,
+            &rp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Get file or directory hash.
@@ -443,7 +461,16 @@ impl<'a> HiDriveFiles<'a> {
                 .fold(String::new(), |s, e| (s + ",") + &e);
             rqp.add_str("ranges", &r[1..]);
         }
-        gen_call(self.hd, reqwest::Method::GET, u, &rqp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::GET,
+            u,
+            &rqp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 
     /// Rename operation.
@@ -458,6 +485,15 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/file/rename", self.hd.base_url);
         let mut rp = Params::new();
         rp.add_str("name", name);
-        gen_call(self.hd, reqwest::Method::GET, u, &rp, p, NO_BODY).await
+        gen_call(
+            &mut self.hd.client,
+            &mut self.hd.authz,
+            reqwest::Method::GET,
+            u,
+            &rp,
+            p,
+            NO_BODY,
+        )
+        .await
     }
 }
