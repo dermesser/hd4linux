@@ -1,7 +1,7 @@
 //! This crate provides access to the HiDrive HTTP API, including OAuth flow.
 
 mod chunking;
-mod gen_call;
+mod http;
 
 pub mod hashing;
 pub mod hidrive;
