@@ -4,8 +4,9 @@
 // Implement revocation
 
 use std::fmt::{self, Display, Formatter};
+use std::time::Duration;
 
-use anyhow::{self, Context};
+use anyhow::{self, Context, Result};
 use log::{self, info};
 
 use hyper::{server, service};
@@ -352,9 +353,9 @@ impl LogInFlow {
     /// If your application is configured with a redirect-to-localhost scheme, this will
     /// start a web server on port 8087 (TO DO: make this adjustable) and wait for the redirect
     /// request.
-    pub async fn wait_for_redirect(&mut self) -> anyhow::Result<()> {
+    pub async fn wait_for_redirect(&mut self, abort_p: impl Fn() -> bool) -> anyhow::Result<()> {
         let rdr = RedirectHandlingServer::new(self.ok_body.clone(), self.err_body.clone());
-        match rdr.start_and_wait_for_code().await {
+        match rdr.start_and_wait_for_code(abort_p).await {
             LogInResult::Ok { code } => {
                 self.authz_code = Some(code);
                 self.state = LogInState::ReceivedCode;
@@ -408,6 +409,48 @@ impl LogInFlow {
     }
 }
 
+// High-level authorization logic.
+
+#[async_trait::async_trait]
+pub trait AuthorizationHandler: Send {
+    /// Display the URL to the user, in order to start the authorization flow.
+    async fn display_authorization_url(&mut self, url: String) -> Result<()> {
+        println!(
+            "Please navigate to {} - the rest will happen automatically.",
+            url
+        );
+        Ok(())
+    }
+    /// Polled at sub-second frequency while waiting for the user to complete the flow.
+    /// If this method returns true, the wait is aborted.
+    fn abort_wait_for_redirect(&self) -> bool {
+        false
+    }
+    /// Called after user has successfully completed the authorization flow, and
+    /// the code-for-credentials exchange can occur.
+    async fn on_received_code(&mut self) {}
+}
+
+pub struct DefaultAuthorizationHandler;
+
+#[async_trait::async_trait]
+impl AuthorizationHandler for DefaultAuthorizationHandler {}
+
+pub async fn authorize_user(
+    handler: &mut dyn AuthorizationHandler,
+    client_secret: ClientSecret,
+    scope: Scope,
+) -> Result<Credentials> {
+    let mut flow = LogInFlow::default_instance(client_secret);
+    let auth_url = flow.get_authorization_url(scope);
+    handler.display_authorization_url(auth_url).await?;
+    let abort_wait = || handler.abort_wait_for_redirect();
+    flow.wait_for_redirect(abort_wait).await?;
+    handler.on_received_code().await;
+    let credentials = flow.exchange_code().await?;
+    Ok(credentials)
+}
+
 // The following ones are only pub for debugging.
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -459,7 +502,7 @@ impl RedirectHandlingServer {
         }
     }
 
-    async fn start_and_wait_for_code(&self) -> LogInResult {
+    async fn start_and_wait_for_code(&self, abort_wait_p: impl Fn() -> bool) -> LogInResult {
         let (s, mut r) = mpsc::channel::<LogInResult>(1);
         let (sds, mut sdr) = mpsc::channel::<()>(1);
         // Wow, this is quite complex for something so simple...
@@ -488,13 +531,25 @@ impl RedirectHandlingServer {
         info!(target: "hd_api::oauth2", "Started server for code callback...");
         graceful.await.expect("server error!");
         info!(target: "hd_api::oauth2", "OAuth callback succeeded");
-        match r.recv().await {
-            Some(l) => l,
-            None => LogInResult::Err {
-                err: OAuthError {
-                    error_description: "mpsc error: sender closed prematurely!".into(),
-                    error: "clientside".into(),
-                },
+        // Check every half second if wait should be aborted.
+        while !abort_wait_p() {
+            match tokio::time::timeout(Duration::from_millis(500), r.recv()).await {
+                Ok(Some(l)) => return l,
+                Ok(None) => {
+                    return LogInResult::Err {
+                        err: OAuthError {
+                            error_description: "mpsc error: sender closed prematurely!".into(),
+                            error: "clientside".into(),
+                        },
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+        LogInResult::Err {
+            err: OAuthError {
+                error: "timeout".into(),
+                error_description: "OAuth wait for code aborted by app logic".into(),
             },
         }
     }
@@ -629,7 +684,7 @@ mod tests {
                 access: oauth2::Access::Ro
             })
         );
-        lif.wait_for_redirect().await.unwrap();
+        lif.wait_for_redirect(|| false).await.unwrap();
         println!("Received code! Exchanging...");
         let tok = lif.exchange_code().await.unwrap();
         println!("Got code: {}", serde_json::to_string_pretty(&tok).unwrap());

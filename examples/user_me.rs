@@ -21,6 +21,7 @@ async fn get_credentials() -> anyhow::Result<(ClientSecret, Credentials)> {
     if let Ok(cred) = oauth2::Credentials::load(CREDENTIALS_PATH).await {
         Ok((client_secret, cred))
     } else {
+        // TODO: use oauth2::authorize_user function.
         // Do authorization flow if credentials not found.
         let mut flow = oauth2::LogInFlow::default_instance(client_secret.clone());
         let auth_url = flow.get_authorization_url(oauth2::Scope {
