@@ -1,24 +1,18 @@
-use simple_logger;
-
 use hd_api::oauth2::{self, ClientSecret, Credentials};
-use hd_api::{self, hidrive};
+use hd_api::{self, hidrive, Params};
 
-use anyhow;
-use reqwest;
 use serde_json::to_string_pretty;
-use tokio;
-use tokio::io::AsyncWrite;
 
 async fn list_me(mut u: hidrive::HiDriveUser<'_>) -> anyhow::Result<()> {
-    let mut p = hidrive::Params::new();
+    let mut p = Params::new();
     p.add_str("fields", "account,alias,descr,email,email_pending,email_verified,encrypted,folder.id,folder.path,folder.size,home,home_id,is_admin,is_owner,language,protocols,has_password");
     let me = u.me(Some(&p)).await?;
     println!("{}", to_string_pretty(&me)?);
     Ok(())
 }
 
-const CLIENT_SECRET_PATH: &'static str = "clientsecret.json";
-const CREDENTIALS_PATH: &'static str = "credentials.json";
+const CLIENT_SECRET_PATH: &str = "clientsecret.json";
+const CREDENTIALS_PATH: &str = "credentials.json";
 
 /// Load or obtain credentials by reading from the local credentials cache or doing a new
 /// authorization flow.

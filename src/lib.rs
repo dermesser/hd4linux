@@ -11,3 +11,4 @@ pub mod types;
 pub use hidrive::HiDrive;
 
 pub use oauth2::{Authorizer, ClientSecret, Credentials};
+pub use types::Params;

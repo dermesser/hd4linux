@@ -182,7 +182,7 @@ impl Authorizer {
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub enum LogInState {
     #[default]
-    Start,          // Next: WaitingForCode or ReceivedCode
+    Start, // Next: WaitingForCode or ReceivedCode
     WaitingForCode, // Next: ReceivedCode
     ReceivedCode,   // Next: ExchangingCode
     ExchangingCode, // Next: Complete

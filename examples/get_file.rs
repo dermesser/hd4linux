@@ -1,14 +1,15 @@
 use log::info;
 use simple_logger;
 
+use hd_api::Params;
 use hd_api::{hidrive, oauth2};
 
 use anyhow;
 use reqwest;
 use tokio;
 
-async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
-    let mut p = hidrive::Params::new();
+async fn get_file(mut u: hidrive::HiDriveFiles<'_>) -> anyhow::Result<()> {
+    let mut p = Params::new();
     p.add_str("path", "/users/lebohd0/hd_api");
     p.add_str(
         "fields",
@@ -18,7 +19,7 @@ async fn get_file<'a>(mut u: hidrive::HiDriveFiles<'a>) -> anyhow::Result<()> {
     let dir = u.get_dir(Some(&p)).await?;
     println!("{:?}", dir);
 
-    let mut p = hidrive::Params::new();
+    let mut p = Params::new();
     p.add_str("path", "/users/lebohd0/hd_api/test.txt");
     let n = u.get(tokio::io::stdout(), Some(&p)).await?;
     println!("Got {} bytes.", n);

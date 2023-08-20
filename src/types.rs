@@ -1,10 +1,104 @@
 use crate::hashing::Hash;
 
+use std::collections::LinkedList;
 use std::fmt::{self, Display, Formatter};
 
+use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+pub enum ParamValue {
+    String(String),
+    Bool(bool),
+    Int(isize),
+}
+
+impl Display for ParamValue {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            ParamValue::String(ref s) => s.fmt(f),
+            ParamValue::Bool(b) => b.fmt(f),
+            ParamValue::Int(u) => u.fmt(f),
+        }
+    }
+}
+
+pub struct Param {
+    name: String,
+    val: ParamValue,
+}
+
+impl Display for Param {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        self.name.fmt(f)?;
+        f.write_str("=")?;
+        self.val.fmt(f)
+    }
+}
+
+/// Use Params to supply optional query parameters to API calls. This implements the required trait
+/// of `P` parameters in API methods. Alternatively, you can use constructs like `&[("key",
+/// "value")]`.
+#[derive(Default)]
+pub struct Params {
+    p: LinkedList<Param>,
+}
+
+impl serde::Serialize for Params {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut ss = s.serialize_seq(Some(self.p.len()))?;
+        for p in self.p.iter() {
+            ss.serialize_element(&(&p.name, p.val.to_string()))?;
+        }
+        ss.end()
+    }
+}
+
+impl Params {
+    pub fn new() -> Params {
+        Params {
+            p: LinkedList::<Param>::new(),
+        }
+    }
+
+    pub fn add(&mut self, k: String, v: ParamValue) {
+        self.p.push_back(Param { name: k, val: v })
+    }
+
+    pub fn add_str<S1: AsRef<str>, S2: AsRef<str>>(&mut self, k: S1, v: S2) {
+        self.p.push_back(Param {
+            name: k.as_ref().into(),
+            val: ParamValue::String(v.as_ref().into()),
+        })
+    }
+    pub fn add_bool<S: AsRef<str>>(&mut self, k: S, v: bool) {
+        self.p.push_back(Param {
+            name: k.as_ref().into(),
+            val: ParamValue::Bool(v),
+        })
+    }
+    pub fn add_int<S: AsRef<str>>(&mut self, k: S, v: isize) {
+        self.p.push_back(Param {
+            name: k.as_ref().into(),
+            val: ParamValue::Int(v),
+        })
+    }
+}
+
+impl Display for Params {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        f.write_str("?")?;
+        let mut first = true;
+        for p in self.p.iter() {
+            if !first {
+                f.write_str("&")?;
+            }
+            first = false;
+            p.fmt(f)?;
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiError {
