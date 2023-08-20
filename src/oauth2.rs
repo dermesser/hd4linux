@@ -411,6 +411,8 @@ impl LogInFlow {
 
 // High-level authorization logic.
 
+/// An `AuthorizationHandler` is used by `authorize_user()` to perform some custom functionality,
+/// and give control to the calling application.
 #[async_trait::async_trait]
 pub trait AuthorizationHandler: Send {
     /// Display the URL to the user, in order to start the authorization flow.
@@ -431,11 +433,15 @@ pub trait AuthorizationHandler: Send {
     async fn on_received_code(&mut self) {}
 }
 
+/// Authorization handler implementing the bare default functionality.
 pub struct DefaultAuthorizationHandler;
 
 #[async_trait::async_trait]
 impl AuthorizationHandler for DefaultAuthorizationHandler {}
 
+/// High level authorization function: Documents the typical OAuth flow, and can be used for most
+/// purposes. The `handler` is used to delegate some tasks and inform the application about the
+/// flow's progress.
 pub async fn authorize_user(
     handler: &mut dyn AuthorizationHandler,
     client_secret: ClientSecret,
