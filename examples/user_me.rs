@@ -32,11 +32,15 @@ async fn get_credentials() -> anyhow::Result<(ClientSecret, Credentials)> {
             "Please navigate to {} - the rest will happen automatically.",
             auth_url
         );
-        flow.wait_for_redirect().await?;
+        flow.wait_for_redirect(|| {
+            println!("still waiting...");
+            false
+        })
+        .await?;
         let credentials = flow.exchange_code().await?;
         let credentials_contents = to_string_pretty(&credentials)?;
         if let Err(e) = tokio::fs::write(CREDENTIALS_PATH, &credentials_contents).await {
-            println!("Warning: could not persist client credentials to {}! You will have to reauthorize next time", CREDENTIALS_PATH);
+            println!("Warning: could not persist client credentials to {} ({})! You will have to reauthorize next time", CREDENTIALS_PATH, e);
         }
         Ok((client_secret, credentials))
     }

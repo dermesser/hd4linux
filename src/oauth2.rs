@@ -4,11 +4,13 @@
 // Implement revocation
 
 use std::fmt::{self, Display, Formatter};
+use std::pin::pin;
 use std::time::Duration;
 
 use anyhow::{self, Context, Result};
-use log::{self, info};
+use log::{self, info, error};
 
+use futures_util::future::{select, FutureExt};
 use hyper::{server, service};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string_pretty};
@@ -509,7 +511,9 @@ impl RedirectHandlingServer {
     }
 
     async fn start_and_wait_for_code(&self, abort_wait_p: impl Fn() -> bool) -> LogInResult {
+        // Result channel
         let (s, mut r) = mpsc::channel::<LogInResult>(1);
+        // Signalling channel: code has been received.
         let (sds, mut sdr) = mpsc::channel::<()>(1);
         // Wow, this is quite complex for something so simple...
         let mkservice = service::make_service_fn(|_c: &server::conn::AddrStream| {
@@ -531,31 +535,31 @@ impl RedirectHandlingServer {
         let srv = server::Server::bind(&([127, 0, 0, 1], self.port).into()).serve(mkservice);
         info!(target: "hd_api::oauth2", "Bound server for code callback...");
         // Wait for handler to signal arrival of request.
-        let graceful = srv.with_graceful_shutdown(async move {
-            sdr.recv().await;
-        });
-        info!(target: "hd_api::oauth2", "Started server for code callback...");
-        graceful.await.expect("server error!");
-        info!(target: "hd_api::oauth2", "OAuth callback succeeded");
-        // Check every half second if wait should be aborted.
-        while !abort_wait_p() {
-            match tokio::time::timeout(Duration::from_millis(500), r.recv()).await {
-                Ok(Some(l)) => return l,
-                Ok(None) => {
-                    return LogInResult::Err {
-                        err: OAuthError {
-                            error_description: "mpsc error: sender closed prematurely!".into(),
-                            error: "clientside".into(),
-                        },
-                    }
-                }
-                Err(_) => continue,
+        let wait_for_abort = async move {
+            let mut iv = tokio::time::interval(Duration::from_millis(500));
+            while !abort_wait_p() {
+                iv.tick().await;
             }
+        };
+        let (wait_for_abort, r_recv) = (pin!(wait_for_abort), pin!(sdr.recv()));
+        let graceful = srv.with_graceful_shutdown(select(wait_for_abort, r_recv).map(|_| {}));
+        info!(target: "hd_api::oauth2", "Started server for code callback...");
+        if let Err(e) = graceful.await {
+            error!(target: "hd_api::oauth2", "RedirectHandlingServer error after shutdown: {}", e);
         }
-        LogInResult::Err {
-            err: OAuthError {
-                error: "timeout".into(),
-                error_description: "OAuth wait for code aborted by app logic".into(),
+        match r.recv().now_or_never() {
+            Some(Some(l)) => l,
+            Some(None) => LogInResult::Err {
+                err: OAuthError {
+                    error_description: "mpsc error: sender closed prematurely!".into(),
+                    error: "clientside".into(),
+                },
+            },
+            None => LogInResult::Err {
+                err: OAuthError {
+                    error: "timeout".into(),
+                    error_description: "OAuth wait for code aborted by app logic".into(),
+                },
             },
         }
     }
@@ -660,7 +664,7 @@ mod tests {
                 println!("{:?}", reqwest::get(url).await);
             });
 
-            let lir = rdr.start_and_wait_for_code().await;
+            let lir = rdr.start_and_wait_for_code(|| false).await;
             assert_eq!(format!("{}", lir), format!("{}", resp));
         }
     }
@@ -673,7 +677,7 @@ mod tests {
             oauth2::DEFAULT_BODY_RESPONSE.into(),
             oauth2::DEFAULT_ERROR_RESPONSE.into(),
         );
-        println!("{:?}", rdr.start_and_wait_for_code().await);
+        println!("{:?}", rdr.start_and_wait_for_code(|| false).await);
     }
 
     #[tokio::test]
