@@ -50,8 +50,7 @@ pub struct Client {
     authz: Authorizer,
 }
 
-pub struct Request<'a> {
-    client: &'a Client,
+pub struct Request {
     rqb: RequestBuilder,
 }
 
@@ -67,7 +66,7 @@ impl Client {
         url: U,
         required: &RP,
         optional: Option<&P>,
-    ) -> Result<Request<'_>> {
+    ) -> Result<Request> {
         let rqb = self
             .authz
             .authorize(self.cl.request(method, url))
@@ -79,11 +78,11 @@ impl Client {
         } else {
             rqb
         };
-        Ok(Request { client: self, rqb })
+        Ok(Request { rqb })
     }
 }
 
-impl Request<'_> {
+impl Request {
     pub async fn go<RT: DeserializeOwned + ?Sized>(self) -> Result<RT> {
         let resp = self.rqb.send().await?;
         read_body_to_json(resp).await
@@ -95,14 +94,12 @@ impl Request<'_> {
 
     pub fn set_body<B: Into<reqwest::Body>>(self, b: B) -> Self {
         Self {
-            client: self.client,
             rqb: self.rqb.body(b),
         }
     }
 
     pub fn set_header<K: Into<HeaderName>, V: AsRef<str>>(self, k: K, v: V) -> Self {
         Self {
-            client: self.client,
             rqb: self
                 .rqb
                 .header(k, HeaderValue::from_str(v.as_ref()).unwrap()),

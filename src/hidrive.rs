@@ -9,10 +9,8 @@ use crate::http::Client;
 use crate::oauth2;
 use crate::types::*;
 
-use anyhow::{self, Error, Result};
-use futures_util::StreamExt;
+use anyhow::{self, Result};
 use reqwest;
-use serde_json;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub const NO_BODY: Option<reqwest::Body> = None;
