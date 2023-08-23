@@ -61,7 +61,7 @@ impl<'a> HiDriveUser<'a> {
         let u = format!("{}/user/me", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &Params::new(), params)
+            .request(Method::GET, u, &Params::new(), params)
             .await?
             .go()
             .await
@@ -86,7 +86,7 @@ impl<'a> HiDrivePermission<'a> {
         let rqp = &[("path", path.as_ref().to_string())];
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &rqp, p)
+            .request(Method::GET, u, &rqp, p)
             .await?
             .go()
             .await
@@ -104,7 +104,7 @@ impl<'a> HiDrivePermission<'a> {
         let rqp = &[("path", path.as_ref().to_string())];
         self.hd
             .client
-            .request(reqwest::Method::PUT, u, &rqp, p)
+            .request(Method::PUT, u, &rqp, p)
             .await?
             .go()
             .await
@@ -126,7 +126,7 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/file", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .request(Method::GET, u, &Params::new(), p)
             .await?
             .download_file(out)
             .await
@@ -164,7 +164,7 @@ impl<'a> HiDriveFiles<'a> {
         &mut self,
         src: R,
         p: Option<&P>,
-        method: reqwest::Method
+        method: Method,
     ) -> Result<Item> {
         let u = format!("{}/file", self.hd.base_url);
         self.hd
@@ -185,7 +185,7 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .request(Method::GET, u, &Params::new(), p)
             .await?
             .go()
             .await
@@ -201,7 +201,7 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir/home", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .request(Method::GET, u, &Params::new(), p)
             .await?
             .go()
             .await
@@ -220,7 +220,7 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("path", path);
         self.hd
             .client
-            .request(reqwest::Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rp, p)
             .await?
             .go()
             .await
@@ -233,7 +233,7 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::DELETE, u, &p, NO_PARAMS)
+            .request(Method::DELETE, u, &p, NO_PARAMS)
             .await?
             .go()
             .await
@@ -253,7 +253,7 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("dst", dst);
         self.hd
             .client
-            .request(reqwest::Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rp, p)
             .await?
             .go()
             .await
@@ -273,7 +273,7 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("dst", dst);
         self.hd
             .client
-            .request(reqwest::Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rp, p)
             .await?
             .go()
             .await
@@ -293,7 +293,7 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("name", name);
         self.hd
             .client
-            .request(reqwest::Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rp, p)
             .await?
             .go()
             .await
@@ -325,7 +325,7 @@ impl<'a> HiDriveFiles<'a> {
         }
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &rqp, p)
+            .request(Method::GET, u, &rqp, p)
             .await?
             .go()
             .await
@@ -345,7 +345,7 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("name", name);
         self.hd
             .client
-            .request(reqwest::Method::GET, u, &rp, p)
+            .request(Method::GET, u, &rp, p)
             .await?
             .go()
             .await
