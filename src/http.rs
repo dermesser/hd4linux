@@ -1,7 +1,10 @@
 use anyhow::{Context, Error, Result};
-use futures_util::Future;
+use futures_util::StreamExt;
 use log::{info, warn};
+use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::RequestBuilder;
 use serde::{de::DeserializeOwned, Serialize};
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::oauth2::Authorizer;
 use crate::types::*;
@@ -21,9 +24,35 @@ async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response)
     }
 }
 
+/// A wrapped callback for writing an HTTP response body to a file.
+async fn write_response_to_file<D: AsyncWrite + Unpin>(
+    rp: reqwest::Response,
+    mut d: D,
+) -> Result<usize> {
+    if rp.status().is_success() {
+        let mut stream = rp.bytes_stream();
+        let mut i = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            d.write_all(chunk.as_ref()).await?;
+            i += chunk.len();
+        }
+        Ok(i)
+    } else {
+        let body = rp.text().await?;
+        let e: ApiError = serde_json::from_reader(body.as_bytes())?;
+        Err(Error::new(e))
+    }
+}
+
 pub struct Client {
     cl: reqwest::Client,
     authz: Authorizer,
+}
+
+pub struct Request<'a> {
+    client: &'a Client,
+    rqb: RequestBuilder,
 }
 
 impl Client {
@@ -31,59 +60,57 @@ impl Client {
         Client { cl, authz }
     }
 
-    pub async fn gen_call<
-        U: reqwest::IntoUrl,
-        P: Serialize + ?Sized,
-        RP: Serialize + ?Sized,
-        RT: DeserializeOwned,
-        BT: Into<reqwest::Body>,
-    >(
-        &mut self,
-        method: reqwest::Method,
-        url: U,
-        required: &RP,
-        optional: Option<&P>,
-        body: Option<BT>,
-    ) -> Result<RT> {
-        self.gen_call_cb(method, url, required, optional, body, read_body_to_json)
-            .await
-    }
-
     /// Generic call to an API endpoint.
-    pub async fn gen_call_cb<
-        U: reqwest::IntoUrl,
-        P: Serialize + ?Sized,
-        RP: Serialize + ?Sized,
-        RT,
-        RF: Future<Output = Result<RT>>,
-        CB: FnOnce(reqwest::Response) -> RF,
-        BT: Into<reqwest::Body>,
-    >(
+    pub async fn request<U: reqwest::IntoUrl, P: Serialize + ?Sized, RP: Serialize + ?Sized>(
         &mut self,
         method: reqwest::Method,
         url: U,
         required: &RP,
         optional: Option<&P>,
-        body: Option<BT>,
-        cb: CB,
-    ) -> Result<RT> {
+    ) -> Result<Request<'_>> {
         let rqb = self
             .authz
             .authorize(self.cl.request(method, url))
             .await
             .context("HiDrive::new_request: Building authorized RequestBuilder")?;
-        let mut rqb = rqb.query(required);
-        if let Some(body) = body {
-            rqb = rqb.body(body);
-        }
+        let rqb = rqb.query(required);
         let rqb = if let Some(params) = optional {
             rqb.query(params)
         } else {
             rqb
         };
-        info!(target: "hd_api::hidrive", "Sending HTTP request: {:?}", rqb);
-        // TODO: handle errors better and add retry logic.
-        let rp = rqb.send().await?;
-        cb(rp).await
+        Ok(Request { client: self, rqb })
+    }
+}
+
+impl Request<'_> {
+    pub async fn go<RT: DeserializeOwned + ?Sized>(self) -> Result<RT> {
+        let resp = self.rqb.send().await?;
+        read_body_to_json(resp).await
+    }
+
+    pub async fn download_file<W: AsyncWrite + Unpin>(self, dst: W) -> Result<usize> {
+        write_response_to_file(self.rqb.send().await?, dst).await
+    }
+
+    pub fn set_body<B: Into<reqwest::Body>>(self, b: B) -> Self {
+        Self {
+            client: self.client,
+            rqb: self.rqb.body(b),
+        }
+    }
+
+    pub fn set_header<K: Into<HeaderName>, V: AsRef<str>>(self, k: K, v: V) -> Self {
+        Self {
+            client: self.client,
+            rqb: self
+                .rqb
+                .header(k, HeaderValue::from_str(v.as_ref()).unwrap()),
+        }
+    }
+
+    pub fn set_attachment<B: Into<reqwest::Body>>(self, b: B) -> Self {
+        self.set_header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .set_body(b)
     }
 }

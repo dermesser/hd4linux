@@ -13,7 +13,7 @@ use anyhow::{self, Error, Result};
 use futures_util::StreamExt;
 use reqwest;
 use serde_json;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub const NO_BODY: Option<reqwest::Body> = None;
 /// Use this if you don't want to supply options to a method. This prevents type errors due to
@@ -62,7 +62,9 @@ impl<'a> HiDriveUser<'a> {
         let u = format!("{}/user/me", self.hd.base_url);
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &Params::new(), params, NO_BODY)
+            .request(reqwest::Method::GET, u, &Params::new(), params)
+            .await?
+            .go()
             .await
     }
 }
@@ -85,7 +87,9 @@ impl<'a> HiDrivePermission<'a> {
         let rqp = &[("path", path.as_ref().to_string())];
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &rqp, p, NO_BODY)
+            .request(reqwest::Method::GET, u, &rqp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -101,7 +105,9 @@ impl<'a> HiDrivePermission<'a> {
         let rqp = &[("path", path.as_ref().to_string())];
         self.hd
             .client
-            .gen_call(reqwest::Method::PUT, u, &rqp, p, NO_BODY)
+            .request(reqwest::Method::PUT, u, &rqp, p)
+            .await?
+            .go()
             .await
     }
 }
@@ -111,27 +117,6 @@ pub struct HiDriveFiles<'a> {
     hd: &'a mut HiDrive,
 }
 
-/// A wrapped callback for writing an HTTP response body to a file.
-async fn write_response_to_file<D: AsyncWrite + Unpin>(
-    rp: reqwest::Response,
-    mut d: D,
-) -> Result<usize> {
-    if rp.status().is_success() {
-        let mut stream = rp.bytes_stream();
-        let mut i = 0;
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk?;
-            d.write_all(chunk.as_ref()).await?;
-            i += chunk.len();
-        }
-        Ok(i)
-    } else {
-        let body = rp.text().await?;
-        let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        Err(Error::new(e))
-    }
-}
-
 impl<'a> HiDriveFiles<'a> {
     /// Download file.
     pub async fn get<P: serde::Serialize + ?Sized, D: AsyncWrite + Unpin>(
@@ -139,17 +124,29 @@ impl<'a> HiDriveFiles<'a> {
         out: D,
         p: Option<&P>,
     ) -> Result<usize> {
-        let cb = move |rp: reqwest::Response| write_response_to_file(rp, out);
         let u = format!("{}/file", self.hd.base_url);
         self.hd
             .client
-            .gen_call_cb(reqwest::Method::GET, u, &Params::new(), p, NO_BODY, cb)
+            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .await?
+            .download_file(out)
             .await
     }
 
-    /*pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
-
-    }*/
+    /// Upload a file (max. 2 gigabytes). Specify either `dir_id`, `dir`, or both; in the latter
+    /// case, `dir` is relative to `dir_id`.
+    ///
+    /// Parameter `name` specifies the file name to be acted on.
+    ///
+    /// File will not be overwritten if it exists (in that case, code 409 is returned).
+    pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized, R: AsyncRead>(
+        &mut self,
+        src: &mut R,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        let u = format!("{}/file", self.hd.base_url);
+        unimplemented!()
+    }
 
     /// Return metadata for directory.
     ///
@@ -160,7 +157,9 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir", self.hd.base_url);
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &Params::new(), p, NO_BODY)
+            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .await?
+            .go()
             .await
     }
 
@@ -174,7 +173,9 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir/home", self.hd.base_url);
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &Params::new(), p, NO_BODY)
+            .request(reqwest::Method::GET, u, &Params::new(), p)
+            .await?
+            .go()
             .await
     }
 
@@ -191,7 +192,9 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("path", path);
         self.hd
             .client
-            .gen_call(reqwest::Method::POST, u, &rp, p, NO_BODY)
+            .request(reqwest::Method::POST, u, &rp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -202,7 +205,9 @@ impl<'a> HiDriveFiles<'a> {
         let u = format!("{}/dir", self.hd.base_url);
         self.hd
             .client
-            .gen_call(reqwest::Method::DELETE, u, &p, NO_PARAMS, NO_BODY)
+            .request(reqwest::Method::DELETE, u, &p, NO_PARAMS)
+            .await?
+            .go()
             .await
     }
 
@@ -220,7 +225,9 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("dst", dst);
         self.hd
             .client
-            .gen_call(reqwest::Method::POST, u, &rp, p, NO_BODY)
+            .request(reqwest::Method::POST, u, &rp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -238,7 +245,9 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("dst", dst);
         self.hd
             .client
-            .gen_call(reqwest::Method::POST, u, &rp, p, NO_BODY)
+            .request(reqwest::Method::POST, u, &rp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -256,7 +265,9 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("name", name);
         self.hd
             .client
-            .gen_call(reqwest::Method::POST, u, &rp, p, NO_BODY)
+            .request(reqwest::Method::POST, u, &rp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -286,7 +297,9 @@ impl<'a> HiDriveFiles<'a> {
         }
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &rqp, p, NO_BODY)
+            .request(reqwest::Method::GET, u, &rqp, p)
+            .await?
+            .go()
             .await
     }
 
@@ -304,7 +317,9 @@ impl<'a> HiDriveFiles<'a> {
         rp.add_str("name", name);
         self.hd
             .client
-            .gen_call(reqwest::Method::GET, u, &rp, p, NO_BODY)
+            .request(reqwest::Method::GET, u, &rp, p)
+            .await?
+            .go()
             .await
     }
 }

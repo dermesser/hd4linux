@@ -20,7 +20,8 @@ async fn get_file(mut u: hidrive::HiDriveFiles<'_>) -> anyhow::Result<()> {
     println!("{:?}", dir);
 
     let mut p = Params::new();
-    p.add_str("path", "/users/lebohd0/hd_api/test.txt");
+    p.add_str("path", "test.txt");
+    p.add_str("pid", dir.id.unwrap());
     let n = u.get(tokio::io::stdout(), Some(&p)).await?;
     println!("Got {} bytes.", n);
 
