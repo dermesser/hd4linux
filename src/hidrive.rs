@@ -10,6 +10,7 @@ use crate::oauth2;
 use crate::types::*;
 
 use anyhow::{self, Result};
+use hyper::Method;
 use reqwest;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -142,10 +143,33 @@ impl<'a> HiDriveFiles<'a> {
         src: R,
         p: Option<&P>,
     ) -> Result<Item> {
+        self.upload_(src, p, Method::POST).await
+    }
+
+    /// Upload a file (max. 2 gigabytes), and overwrite an existing file if it exists.
+    ///
+    /// Specify either `dir_id`, `dir`, or both; in the latter
+    /// case, `dir` is relative to `dir_id`.
+    ///
+    /// Parameter `name` specifies the file name to be acted on.
+    pub async fn upload<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
+        &mut self,
+        src: R,
+        p: Option<&P>,
+    ) -> Result<Item> {
+        self.upload_(src, p, Method::PUT).await
+    }
+
+    async fn upload_<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
+        &mut self,
+        src: R,
+        p: Option<&P>,
+        method: reqwest::Method
+    ) -> Result<Item> {
         let u = format!("{}/file", self.hd.base_url);
         self.hd
             .client
-            .request(reqwest::Method::POST, u, &Params::new(), p)
+            .request(method, u, &Params::new(), p)
             .await?
             .set_attachment(src)
             .go()
