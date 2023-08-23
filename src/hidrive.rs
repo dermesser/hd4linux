@@ -137,13 +137,19 @@ impl<'a> HiDriveFiles<'a> {
     /// Parameter `name` specifies the file name to be acted on.
     ///
     /// File will not be overwritten if it exists (in that case, code 409 is returned).
-    pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized, R: AsyncRead>(
+    pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
         &mut self,
-        src: &mut R,
+        src: R,
         p: Option<&P>,
     ) -> Result<Item> {
         let u = format!("{}/file", self.hd.base_url);
-        unimplemented!()
+        self.hd
+            .client
+            .request(reqwest::Method::POST, u, &Params::new(), p)
+            .await?
+            .set_attachment(src)
+            .go()
+            .await
     }
 
     /// Return metadata for directory.
