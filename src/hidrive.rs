@@ -12,7 +12,7 @@ use crate::types::*;
 use anyhow::{self, Result};
 use hyper::Method;
 use reqwest;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::AsyncWrite;
 
 pub const NO_BODY: Option<reqwest::Body> = None;
 /// Use this if you don't want to supply options to a method. This prevents type errors due to

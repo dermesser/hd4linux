@@ -15,29 +15,20 @@ const CLIENT_SECRET_PATH: &str = "clientsecret.json";
 const CREDENTIALS_PATH: &str = "credentials.json";
 
 /// Load or obtain credentials by reading from the local credentials cache or doing a new
-/// authorization flow.
+/// authorization flow. The main work is done by `oauth2::authorize_user()`, here we are mostly
+/// concerned with reading and caching the credentials from/to a local file.
 async fn get_credentials() -> anyhow::Result<(ClientSecret, Credentials)> {
     let client_secret = oauth2::ClientSecret::load(CLIENT_SECRET_PATH).await?;
     if let Ok(cred) = oauth2::Credentials::load(CREDENTIALS_PATH).await {
         Ok((client_secret, cred))
     } else {
-        // TODO: use oauth2::authorize_user function.
-        // Do authorization flow if credentials not found.
-        let mut flow = oauth2::LogInFlow::default_instance(client_secret.clone());
-        let auth_url = flow.get_authorization_url(oauth2::Scope {
+        let mut handler = oauth2::DefaultAuthorizationHandler;
+        let scope = oauth2::Scope {
             role: oauth2::Role::User,
             access: oauth2::Access::Rw,
-        });
-        println!(
-            "Please navigate to {} - the rest will happen automatically.",
-            auth_url
-        );
-        flow.wait_for_redirect(|| {
-            println!("still waiting...");
-            false
-        })
-        .await?;
-        let credentials = flow.exchange_code().await?;
+        };
+        let credentials =
+            oauth2::authorize_user(&mut handler, client_secret.clone(), scope).await?;
         let credentials_contents = to_string_pretty(&credentials)?;
         if let Err(e) = tokio::fs::write(CREDENTIALS_PATH, &credentials_contents).await {
             println!("Warning: could not persist client credentials to {} ({})! You will have to reauthorize next time", CREDENTIALS_PATH, e);
