@@ -7,6 +7,7 @@ use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+#[derive(Clone, PartialEq)]
 pub enum ParamValue {
     String(String),
     Bool(bool),
@@ -23,6 +24,7 @@ impl Display for ParamValue {
     }
 }
 
+#[derive(Clone, PartialEq)]
 pub struct Param {
     name: String,
     val: ParamValue,
@@ -39,7 +41,7 @@ impl Display for Param {
 /// Use Params to supply optional query parameters to API calls. This implements the required trait
 /// of `P` parameters in API methods. Alternatively, you can use constructs like `&[("key",
 /// "value")]`.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Params {
     p: LinkedList<Param>,
 }
@@ -61,27 +63,31 @@ impl Params {
         }
     }
 
-    pub fn add(&mut self, k: String, v: ParamValue) {
-        self.p.push_back(Param { name: k, val: v })
+    pub fn add(&mut self, k: String, v: ParamValue) -> &mut Self {
+        self.p.push_back(Param { name: k, val: v });
+        self
     }
 
-    pub fn add_str<S1: AsRef<str>, S2: AsRef<str>>(&mut self, k: S1, v: S2) {
+    pub fn add_str<S1: AsRef<str>, S2: AsRef<str>>(&mut self, k: S1, v: S2) -> &mut Self {
         self.p.push_back(Param {
             name: k.as_ref().into(),
             val: ParamValue::String(v.as_ref().into()),
-        })
+        });
+        self
     }
-    pub fn add_bool<S: AsRef<str>>(&mut self, k: S, v: bool) {
+    pub fn add_bool<S: AsRef<str>>(&mut self, k: S, v: bool) -> &mut Self {
         self.p.push_back(Param {
             name: k.as_ref().into(),
             val: ParamValue::Bool(v),
-        })
+        });
+        self
     }
-    pub fn add_int<S: AsRef<str>>(&mut self, k: S, v: isize) {
+    pub fn add_int<S: AsRef<str>>(&mut self, k: S, v: isize) -> &mut Self {
         self.p.push_back(Param {
             name: k.as_ref().into(),
             val: ParamValue::Int(v),
-        })
+        });
+        self
     }
 }
 

@@ -1,12 +1,7 @@
 use log::info;
-use simple_logger;
 
 use hd_api::Params;
 use hd_api::{hidrive, oauth2};
-
-use anyhow;
-use reqwest;
-use tokio;
 
 async fn get_file(mut u: hidrive::HiDriveFiles<'_>) -> anyhow::Result<()> {
     let mut p = Params::new();
@@ -20,8 +15,8 @@ async fn get_file(mut u: hidrive::HiDriveFiles<'_>) -> anyhow::Result<()> {
     println!("{:?}", dir);
 
     let mut p = Params::new();
-    p.add_str("path", "test.txt");
-    p.add_str("pid", dir.id.unwrap());
+    p.add_str("path", "test.txt")
+        .add_str("pid", dir.id.unwrap());
     let n = u.get(tokio::io::stdout(), Some(&p)).await?;
     println!("Got {} bytes.", n);
 
@@ -37,12 +32,13 @@ async fn main() {
 
     let client = reqwest::Client::new();
 
-    let cred = oauth2::Credentials::load("credentials.json").await.unwrap();
+    // We assume that credentials already exist.
+    let cred = oauth2::Credentials::load("credentials.json").await.expect("Credentials couldn't be read: make sure they are there and/or authorize using the `user_me` example.");
     let cid = oauth2::ClientSecret::load("clientsecret.json")
         .await
         .unwrap();
     let authz = oauth2::Authorizer::new_with_client(cred, cid, client.clone());
 
-    let mut hd = hidrive::HiDrive::new(reqwest::Client::new(), authz);
+    let mut hd = hidrive::HiDrive::new(client, authz);
     get_file(hd.files()).await.unwrap();
 }
