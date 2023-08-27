@@ -10,6 +10,7 @@ use hd_api::{hidrive, oauth2};
 #[derive(Subcommand)]
 enum Commands {
     List { folder: String },
+    Delete { file: String },
     Get { file: String },
     Put { file: String, folder: String },
 }
@@ -33,6 +34,16 @@ async fn list_me(mut u: hidrive::HiDriveUser<'_>) -> anyhow::Result<Home> {
         path: me.home,
         id: me.home_id,
     })
+}
+
+async fn delete_file(
+    mut u: hidrive::HiDriveFiles<'_>,
+    home: Home,
+    file: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let mut p = Params::new();
+    p.add_str("pid", home.id).add_str("path", file.as_ref());
+    u.delete(Some(&p)).await
 }
 
 async fn list_files(
@@ -132,5 +143,8 @@ async fn main() {
         Commands::Put { file, folder } => put_file(hd.files(), home, file, folder)
             .await
             .expect("put_file"),
+        Commands::Delete { file } => delete_file(hd.files(), home, file)
+            .await
+            .expect("delete_file"),
     }
 }

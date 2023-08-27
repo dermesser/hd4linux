@@ -176,6 +176,19 @@ impl<'a> HiDriveFiles<'a> {
             .await
     }
 
+    /// Delete file.
+    ///
+    /// Specify `pid` and/or `path`.
+    pub async fn delete<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<()> {
+        let u = format!("{}/file", self.hd.base_url);
+        self.hd
+            .client
+            .request(Method::DELETE, u, &Params::new(), p)
+            .await?
+            .go()
+            .await
+    }
+
     /// Return metadata for directory.
     ///
     /// Specify either `pid` or `path`, or the request will fail.

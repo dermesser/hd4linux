@@ -10,12 +10,16 @@ use crate::oauth2::Authorizer;
 use crate::types::*;
 
 /// This is a callback for gen_call_cb, deserializing the response to JSON.
-async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response) -> Result<RT> {
+async fn read_body_to_json<RT: Default + DeserializeOwned + ?Sized>(rp: reqwest::Response) -> Result<RT> {
     let status = rp.status();
     if status.is_success() {
         let body = rp.text().await?;
         info!(target: "hd_api::http", "Received HTTP response 200, body: {}", body);
-        Ok(serde_json::from_reader(body.as_bytes())?)
+        if body.is_empty() {
+            Ok(Default::default())
+        } else {
+            Ok(serde_json::from_reader(body.as_bytes())?)
+        }
     } else {
         let body = rp.text().await?;
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
@@ -83,7 +87,7 @@ impl Client {
 }
 
 impl Request {
-    pub async fn go<RT: DeserializeOwned + ?Sized>(self) -> Result<RT> {
+    pub async fn go<RT: Default + DeserializeOwned + ?Sized>(self) -> Result<RT> {
         info!(target: "hd_api::http", "sending http request: {:?}", self.rqb);
         let resp = self.rqb.send().await?;
         read_body_to_json(resp).await
