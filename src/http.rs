@@ -14,12 +14,12 @@ async fn read_body_to_json<RT: DeserializeOwned + ?Sized>(rp: reqwest::Response)
     let status = rp.status();
     if status.is_success() {
         let body = rp.text().await?;
-        info!(target: "hd_api::hidrive", "Received HTTP response 200, body: {}", body);
+        info!(target: "hd_api::http", "Received HTTP response 200, body: {}", body);
         Ok(serde_json::from_reader(body.as_bytes())?)
     } else {
         let body = rp.text().await?;
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        warn!(target: "hd_api::hidrive", "Received HTTP error {}: {:?}", status, e);
+        warn!(target: "hd_api::http", "Received HTTP error {}: {:?}", status, e);
         Err(Error::new(e))
     }
 }
@@ -84,11 +84,13 @@ impl Client {
 
 impl Request {
     pub async fn go<RT: DeserializeOwned + ?Sized>(self) -> Result<RT> {
+        info!(target: "hd_api::http", "sending http request: {:?}", self.rqb);
         let resp = self.rqb.send().await?;
         read_body_to_json(resp).await
     }
 
     pub async fn download_file<W: AsyncWrite + Unpin>(self, dst: W) -> Result<usize> {
+        info!(target: "hd_api::http", "sending http request for download: {:?}", self.rqb);
         write_response_to_file(self.rqb.send().await?, dst).await
     }
 

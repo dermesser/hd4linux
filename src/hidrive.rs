@@ -149,7 +149,7 @@ impl<'a> HiDriveFiles<'a> {
     /// Upload a file (max. 2 gigabytes), and overwrite an existing file if it exists.
     ///
     /// Specify either `dir_id`, `dir`, or both; in the latter
-    /// case, `dir` is relative to `dir_id`.
+    /// case, `dir` is relative to `dir_id`. Specify `name` to give the file name.
     ///
     /// Parameter `name` specifies the file name to be acted on.
     pub async fn upload<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
