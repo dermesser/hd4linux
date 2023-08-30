@@ -10,7 +10,9 @@ use crate::oauth2::Authorizer;
 use crate::types::*;
 
 /// This is a callback for gen_call_cb, deserializing the response to JSON.
-async fn read_body_to_json<RT: Default + DeserializeOwned + ?Sized>(rp: reqwest::Response) -> Result<RT> {
+async fn read_body_to_json<RT: Default + DeserializeOwned + ?Sized>(
+    rp: reqwest::Response,
+) -> Result<RT> {
     let status = rp.status();
     if status.is_success() {
         let body = rp.text().await?;

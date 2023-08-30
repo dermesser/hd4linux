@@ -57,7 +57,7 @@ async fn list_files(
     p.add_str("path", path)
         .add_str(
             "fields",
-            "name,id,parent_id,nmembers,type,members,readable,writable",
+            "name,id,parent_id,nmembers,type,members,readable,writable,size,members.size,members.chash",
         )
         .add_str("pid", home.id);
     info!(target: "get_file", "Checking directory...");

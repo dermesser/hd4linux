@@ -8,7 +8,7 @@ use std::pin::pin;
 use std::time::Duration;
 
 use anyhow::{self, Context, Result};
-use log::{self, info, error};
+use log::{self, error, info};
 
 use futures_util::future::{select, FutureExt};
 use hyper::{server, service};
