@@ -13,6 +13,7 @@ enum Commands {
     Delete { file: String },
     Get { file: String },
     Put { file: String, folder: String },
+    Mvfile { from: String, to: String },
 }
 
 #[derive(Parser)]
@@ -46,6 +47,24 @@ async fn delete_file(
         path: file.as_ref().to_string(),
     };
     u.delete(id, None).await
+}
+
+async fn mv_file(
+    mut u: hidrive::HiDriveFiles<'_>,
+    home: Home,
+    from: impl AsRef<str>,
+    to: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let from = Identifier::Relative {
+        id: home.id.clone(),
+        path: from.as_ref().to_string(),
+    };
+    let to = Identifier::Relative {
+        id: home.id,
+        path: to.as_ref().to_string(),
+    };
+    u.mv(from, to, None).await?;
+    Ok(())
 }
 
 async fn list_files(
@@ -154,5 +173,8 @@ async fn main() {
         Commands::Delete { file } => delete_file(hd.files(), home, file)
             .await
             .expect("delete_file"),
+        Commands::Mvfile { from, to } => {
+            mv_file(hd.files(), home, from, to).await.expect("mv_file")
+        }
     }
 }

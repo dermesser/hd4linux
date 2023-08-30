@@ -213,7 +213,7 @@ impl<'a> HiDriveFiles<'a> {
     /// Copy from `src` to `dst`. `dst` must be `Path` or `Relative`.
     ///
     /// Also available: `snapshot, snaptime, dst_parent_mtime, preserve_mtime`.
-    pub async fn cp(
+    pub async fn copy(
         &mut self,
         from: Identifier,
         to: Identifier,
@@ -312,7 +312,7 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Further parameters: `on_exist, snapshot, snaptime, dst_parent_mtime,
     /// preserve_mtime`.
-    pub async fn cp_dir<S: AsRef<str>>(
+    pub async fn copy_dir<S: AsRef<str>>(
         &mut self,
         from: Identifier,
         to: Identifier,
@@ -403,6 +403,27 @@ impl<'a> HiDriveFiles<'a> {
         self.hd
             .client
             .request(Method::GET, u, &rqp, p)
+            .await?
+            .go()
+            .await
+    }
+
+    /// Move file.
+    ///
+    /// `to` must be `Relative` or `Path`.
+    pub async fn mv(
+        &mut self,
+        from: Identifier,
+        to: Identifier,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/move", self.hd.base_url);
+        let mut rqp = Params::new();
+        from.to_params(&mut rqp, "src_id", "src");
+        to.to_params(&mut rqp, "dst_id", "dst");
+        self.hd
+            .client
+            .request(Method::POST, u, &rqp, p)
             .await?
             .go()
             .await
