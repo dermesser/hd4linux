@@ -187,11 +187,11 @@ impl<'a> HiDriveFiles<'a> {
         self.upload_(dir, name, src, p, Method::PUT).await
     }
 
-    async fn upload_<S: AsRef<str>, R: Into<reqwest::Body>>(
+    async fn upload_(
         &mut self,
         id: Identifier,
-        name: S,
-        src: R,
+        name: impl AsRef<str>,
+        src: impl Into<reqwest::Body>,
         p: Option<&Params>,
         method: Method,
     ) -> Result<Item> {
@@ -312,7 +312,7 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Further parameters: `on_exist, snapshot, snaptime, dst_parent_mtime,
     /// preserve_mtime`.
-    pub async fn copy_dir<S: AsRef<str>>(
+    pub async fn copy_dir(
         &mut self,
         from: Identifier,
         to: Identifier,
@@ -334,7 +334,7 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Further parameters: `src, src_id, dst_id, on_exist, src_parent_mtime, dst_parent_mtime,
     /// preserve_mtime`.
-    pub async fn mvdir<S: AsRef<str>>(
+    pub async fn mvdir(
         &mut self,
         from: Identifier,
         to: Identifier,
@@ -356,10 +356,10 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
     /// {autoname, overwrite}, parent_mtime (int)'.
-    pub async fn renamedir<S: AsRef<str>>(
+    pub async fn renamedir(
         &mut self,
         dir: Identifier,
-        name: &S,
+        name: impl AsRef<str>,
         p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/dir/rename", self.hd.base_url);
@@ -433,10 +433,10 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
     /// {autoname, overwrite}, parent_mtime (int)'.
-    pub async fn rename<S: AsRef<str>>(
+    pub async fn rename(
         &mut self,
         id: Identifier,
-        name: &S,
+        name: impl AsRef<str>,
         p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/file/rename", self.hd.base_url);
