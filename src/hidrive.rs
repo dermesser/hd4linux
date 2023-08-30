@@ -231,9 +231,50 @@ impl<'a> HiDriveFiles<'a> {
             .await
     }
 
-    /// Delete file.
+    /// Move file.
     ///
-    /// Specify `pid` and/or `path`.
+    /// `to` must be `Relative` or `Path`.
+    pub async fn mv(
+        &mut self,
+        from: Identifier,
+        to: Identifier,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/move", self.hd.base_url);
+        let mut rqp = Params::new();
+        from.to_params(&mut rqp, "src_id", "src");
+        to.to_params(&mut rqp, "dst_id", "dst");
+        self.hd
+            .client
+            .request(Method::POST, u, &rqp, p)
+            .await?
+            .go()
+            .await
+    }
+
+    /// Rename operation.
+    ///
+    /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
+    /// {autoname, overwrite}, parent_mtime (int)'.
+    pub async fn rename(
+        &mut self,
+        id: Identifier,
+        name: impl AsRef<str>,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/rename", self.hd.base_url);
+        let mut rqp = Params::new();
+        rqp.add_str("name", name);
+        id.to_params(&mut rqp, "pid", "path");
+        self.hd
+            .client
+            .request(Method::GET, u, &rqp, p)
+            .await?
+            .go()
+            .await
+    }
+
+    /// Delete file.
     pub async fn delete(&mut self, id: Identifier, p: Option<&Params>) -> Result<()> {
         let u = format!("{}/file", self.hd.base_url);
         let mut rqp = Params::new();
@@ -243,6 +284,26 @@ impl<'a> HiDriveFiles<'a> {
             .request(Method::DELETE, u, &rqp, p)
             .await?
             .go()
+            .await
+    }
+
+    /// Download a thumbnail.
+    ///
+    /// Optional parameters are `width, height, mode, snapshot, snaptime`.
+    pub async fn thumbnail<D: AsyncWrite + Unpin>(
+        &mut self,
+        id: Identifier,
+        dst: D,
+        p: Option<&Params>,
+    ) -> Result<usize> {
+        let u = format!("{}/file/thumbnail", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
+        self.hd
+            .client
+            .request(Method::GET, u, &rqp, p)
+            .await?
+            .download_file(dst)
             .await
     }
 
@@ -400,49 +461,6 @@ impl<'a> HiDriveFiles<'a> {
                 .fold(String::new(), |s, e| (s + ",") + &e);
             rqp.add_str("ranges", &r[1..]);
         }
-        self.hd
-            .client
-            .request(Method::GET, u, &rqp, p)
-            .await?
-            .go()
-            .await
-    }
-
-    /// Move file.
-    ///
-    /// `to` must be `Relative` or `Path`.
-    pub async fn mv(
-        &mut self,
-        from: Identifier,
-        to: Identifier,
-        p: Option<&Params>,
-    ) -> Result<Item> {
-        let u = format!("{}/file/move", self.hd.base_url);
-        let mut rqp = Params::new();
-        from.to_params(&mut rqp, "src_id", "src");
-        to.to_params(&mut rqp, "dst_id", "dst");
-        self.hd
-            .client
-            .request(Method::POST, u, &rqp, p)
-            .await?
-            .go()
-            .await
-    }
-
-    /// Rename operation.
-    ///
-    /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
-    /// {autoname, overwrite}, parent_mtime (int)'.
-    pub async fn rename(
-        &mut self,
-        id: Identifier,
-        name: impl AsRef<str>,
-        p: Option<&Params>,
-    ) -> Result<Item> {
-        let u = format!("{}/file/rename", self.hd.base_url);
-        let mut rqp = Params::new();
-        rqp.add_str("name", name);
-        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
             .request(Method::GET, u, &rqp, p)
