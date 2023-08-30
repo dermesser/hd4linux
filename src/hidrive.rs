@@ -21,6 +21,13 @@ pub const NO_PARAMS: Option<&Params> = None;
 
 const DEFAULT_API_BASE_URL: &str = "https://api.hidrive.strato.com/2.1";
 
+/// The HiDrive API hub.
+///
+/// API documentation can be found at
+/// [developer.hidrive.com](https://developer.hidrive.com/http-api-reference/).
+///
+/// All calls are "dynamically typed", taking a collection of parameters varying by call. Check the
+/// documentation for which parameters are required for any given call.
 pub struct HiDrive {
     client: Client,
     base_url: String,
@@ -57,7 +64,7 @@ pub struct HiDriveUser<'a> {
 /// This will be extended in future to allow for administration. For now, it only contains
 /// bare-bones features.
 impl<'a> HiDriveUser<'a> {
-    pub async fn me<P: serde::Serialize + ?Sized>(&mut self, params: Option<&P>) -> Result<User> {
+    pub async fn me(&mut self, params: Option<&Params>) -> Result<User> {
         let u = format!("{}/user/me", self.hd.base_url);
         self.hd
             .client
@@ -77,13 +84,14 @@ impl<'a> HiDrivePermission<'a> {
     /// GET /2.1/permission
     ///
     /// Optional parameters: `pid, account, fields`.
-    pub async fn get_permission<S: AsRef<str>, P: serde::Serialize + ?Sized>(
+    pub async fn get_permission(
         &mut self,
-        path: &S,
-        p: Option<&P>,
+        id: Identifier,
+        p: Option<&Params>,
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
-        let rqp = &[("path", path.as_ref().to_string())];
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
             .request(Method::GET, u, &rqp, p)
@@ -95,13 +103,14 @@ impl<'a> HiDrivePermission<'a> {
     /// PUT /2.1/permission
     ///
     /// Optional parameters: `pid, account, invite_id, readable, writable` for P.
-    pub async fn set_permission<S: AsRef<str>, P: serde::Serialize + ?Sized>(
+    pub async fn set_permission(
         &mut self,
-        path: &S,
-        p: Option<&P>,
+        id: Identifier,
+        p: Option<&Params>,
     ) -> Result<Permissions> {
         let u = format!("{}/permission", self.hd.base_url);
-        let rqp = &[("path", path.as_ref().to_string())];
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
             .request(Method::PUT, u, &rqp, p)
@@ -112,21 +121,34 @@ impl<'a> HiDrivePermission<'a> {
 }
 
 /// Interact with files.
+///
+/// Almost all calls identify files or directories by the parameters `pid` (object ID) and `path`
+/// (filesystem path).
+///
+/// * if only `pid` is given, operate on this object.
+/// * if only `path` is given, operate on this file or directory.
+/// * if both are given, `path` is taken to be relative to `pid`.
+///
 pub struct HiDriveFiles<'a> {
     hd: &'a mut HiDrive,
 }
 
 impl<'a> HiDriveFiles<'a> {
     /// Download file.
-    pub async fn get<P: serde::Serialize + ?Sized, D: AsyncWrite + Unpin>(
+    ///
+    /// Parameters: `pid, path, snapshot, snaptime`.
+    pub async fn get<D: AsyncWrite + Unpin>(
         &mut self,
+        id: Identifier,
         out: D,
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<usize> {
         let u = format!("{}/file", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::GET, u, &Params::new(), p)
+            .request(Method::GET, u, &rqp, p)
             .await?
             .download_file(out)
             .await
@@ -135,43 +157,76 @@ impl<'a> HiDriveFiles<'a> {
     /// Upload a file (max. 2 gigabytes). Specify either `dir_id`, `dir`, or both; in the latter
     /// case, `dir` is relative to `dir_id`.
     ///
-    /// Parameter `name` specifies the file name to be acted on.
+    /// Parameter `name` specifies the file name to be acted on. `dir` or `dir_id` specify the
+    /// directory where to create the file. Also available: `mtime, parent_mtime, on_exist`.
     ///
     /// File will not be overwritten if it exists (in that case, code 409 is returned).
-    pub async fn upload_no_overwrite<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
+    ///
+    /// TODO: provide callback for upload status.
+    pub async fn upload_no_overwrite<S: AsRef<str>, R: Into<reqwest::Body>>(
         &mut self,
+        dir: Identifier,
+        name: S,
         src: R,
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<Item> {
-        self.upload_(src, p, Method::POST).await
+        self.upload_(dir, name, src, p, Method::POST).await
     }
 
     /// Upload a file (max. 2 gigabytes), and overwrite an existing file if it exists.
     ///
-    /// Specify either `dir_id`, `dir`, or both; in the latter
-    /// case, `dir` is relative to `dir_id`. Specify `name` to give the file name.
     ///
     /// Parameter `name` specifies the file name to be acted on.
-    pub async fn upload<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
+    pub async fn upload<S: AsRef<str>, R: Into<reqwest::Body>>(
         &mut self,
+        dir: Identifier,
+        name: S,
         src: R,
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<Item> {
-        self.upload_(src, p, Method::PUT).await
+        self.upload_(dir, name, src, p, Method::PUT).await
     }
 
-    async fn upload_<P: serde::Serialize + ?Sized, R: Into<reqwest::Body>>(
+    async fn upload_<S: AsRef<str>, R: Into<reqwest::Body>>(
         &mut self,
+        id: Identifier,
+        name: S,
         src: R,
-        p: Option<&P>,
+        p: Option<&Params>,
         method: Method,
     ) -> Result<Item> {
         let u = format!("{}/file", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "dir_id", "dir");
+        rqp.add_str("name", name.as_ref());
         self.hd
             .client
-            .request(method, u, &Params::new(), p)
+            .request(method, u, &rqp, p)
             .await?
             .set_attachment(src)
+            .go()
+            .await
+    }
+
+    /// Copy file.
+    ///
+    /// Copy from `src` to `dst`. `dst` must be `Path` or `Relative`.
+    ///
+    /// Also available: `snapshot, snaptime, dst_parent_mtime, preserve_mtime`.
+    pub async fn cp(
+        &mut self,
+        from: Identifier,
+        to: Identifier,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/copy", self.hd.base_url);
+        let mut rqp = Params::new();
+        from.to_params(&mut rqp, "src_id", "src");
+        to.to_params(&mut rqp, "dst_id", "dst");
+        self.hd
+            .client
+            .request(Method::POST, u, &rqp, p)
+            .await?
             .go()
             .await
     }
@@ -179,11 +234,13 @@ impl<'a> HiDriveFiles<'a> {
     /// Delete file.
     ///
     /// Specify `pid` and/or `path`.
-    pub async fn delete<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<()> {
+    pub async fn delete(&mut self, id: Identifier, p: Option<&Params>) -> Result<()> {
         let u = format!("{}/file", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::DELETE, u, &Params::new(), p)
+            .request(Method::DELETE, u, &rqp, p)
             .await?
             .go()
             .await
@@ -194,11 +251,13 @@ impl<'a> HiDriveFiles<'a> {
     /// Specify either `pid` or `path`, or the request will fail.
     ///
     /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
-    pub async fn get_dir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
+    pub async fn get_dir(&mut self, id: Identifier, p: Option<&Params>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::GET, u, &Params::new(), p)
+            .request(Method::GET, u, &rqp, p)
             .await?
             .go()
             .await
@@ -207,10 +266,7 @@ impl<'a> HiDriveFiles<'a> {
     /// Return metadata for home directory.
     ///
     /// Further parameters: `members, limit, snapshot, snaptime, fields, sort`.
-    pub async fn get_home_dir<P: serde::Serialize + ?Sized>(
-        &mut self,
-        p: Option<&P>,
-    ) -> Result<Item> {
+    pub async fn get_home_dir(&mut self, p: Option<&Params>) -> Result<Item> {
         let u = format!("{}/dir/home", self.hd.base_url);
         self.hd
             .client
@@ -222,18 +278,16 @@ impl<'a> HiDriveFiles<'a> {
 
     /// Create directory.
     ///
+    /// `id` must be `Path` or `Relative`.
+    ///
     /// Further parameters: `pid, on_exist, mtime, parent_mtime`.
-    pub async fn mkdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
-        &mut self,
-        path: &S,
-        p: Option<&P>,
-    ) -> Result<Item> {
+    pub async fn mkdir(&mut self, id: Identifier, p: Option<&Params>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
-        let mut rp = Params::new();
-        rp.add_str("path", path);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rqp, p)
             .await?
             .go()
             .await
@@ -242,31 +296,35 @@ impl<'a> HiDriveFiles<'a> {
     /// Remove directory.
     ///
     /// Further parameters: `path, pid, recursive, parent_mtime`.
-    pub async fn rmdir<P: serde::Serialize + ?Sized>(&mut self, p: Option<&P>) -> Result<Item> {
+    pub async fn delete_dir(&mut self, id: Identifier, p: Option<&Params>) -> Result<Item> {
         let u = format!("{}/dir", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::DELETE, u, &p, NO_PARAMS)
+            .request(Method::DELETE, u, &rqp, p)
             .await?
             .go()
             .await
     }
 
-    /// Copy directory.
+    /// Copy directory. `to` must be `Relative` or `Path`.
     ///
-    /// Further parameters: `src, src_id, dst_id, on_exist, snapshot, snaptime, dst_parent_mtime,
+    /// Further parameters: `on_exist, snapshot, snaptime, dst_parent_mtime,
     /// preserve_mtime`.
-    pub async fn cpdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+    pub async fn cp_dir<S: AsRef<str>>(
         &mut self,
-        dst: &S,
-        p: Option<&P>,
+        from: Identifier,
+        to: Identifier,
+        p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/dir/copy", self.hd.base_url);
-        let mut rp = Params::new();
-        rp.add_str("dst", dst);
+        let mut rqp = Params::new();
+        from.to_params(&mut rqp, "src_id", "src");
+        to.to_params(&mut rqp, "dst_id", "dst");
         self.hd
             .client
-            .request(Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rqp, p)
             .await?
             .go()
             .await
@@ -276,17 +334,19 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Further parameters: `src, src_id, dst_id, on_exist, src_parent_mtime, dst_parent_mtime,
     /// preserve_mtime`.
-    pub async fn mvdir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+    pub async fn mvdir<S: AsRef<str>>(
         &mut self,
-        dst: &S,
-        p: Option<&P>,
+        from: Identifier,
+        to: Identifier,
+        p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/dir/move", self.hd.base_url);
-        let mut rp = Params::new();
-        rp.add_str("dst", dst);
+        let mut rqp = Params::new();
+        from.to_params(&mut rqp, "src_id", "src");
+        to.to_params(&mut rqp, "dst_id", "dst");
         self.hd
             .client
-            .request(Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rqp, p)
             .await?
             .go()
             .await
@@ -296,17 +356,19 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
     /// {autoname, overwrite}, parent_mtime (int)'.
-    pub async fn renamedir<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+    pub async fn renamedir<S: AsRef<str>>(
         &mut self,
+        dir: Identifier,
         name: &S,
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/dir/rename", self.hd.base_url);
-        let mut rp = Params::new();
-        rp.add_str("name", name);
+        let mut rqp = Params::new();
+        rqp.add_str("name", name);
+        dir.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::POST, u, &rp, p)
+            .request(Method::POST, u, &rqp, p)
             .await?
             .go()
             .await
@@ -318,15 +380,17 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Get hash for given level and ranges. If ranges is empty, return hashes for entire file (but
     /// at most 256).
-    pub async fn hash<P: serde::Serialize + ?Sized>(
+    pub async fn hash(
         &mut self,
+        id: Identifier,
         level: isize,
         ranges: &[(usize, usize)],
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<FileHash> {
         let u = format!("{}/file/hash", self.hd.base_url);
         let mut rqp = Params::new();
         rqp.add_int("level", level);
+        id.to_params(&mut rqp, "pid", "path");
         if ranges.is_empty() {
             rqp.add_str("ranges", "-");
         } else {
@@ -348,17 +412,19 @@ impl<'a> HiDriveFiles<'a> {
     ///
     /// Takes the new name as required parameter. Useful parameters: `path, pid, on_exist =
     /// {autoname, overwrite}, parent_mtime (int)'.
-    pub async fn rename<P: serde::Serialize + ?Sized, S: AsRef<str>>(
+    pub async fn rename<S: AsRef<str>>(
         &mut self,
+        id: Identifier,
         name: &S,
-        p: Option<&P>,
+        p: Option<&Params>,
     ) -> Result<Item> {
         let u = format!("{}/file/rename", self.hd.base_url);
-        let mut rp = Params::new();
-        rp.add_str("name", name);
+        let mut rqp = Params::new();
+        rqp.add_str("name", name);
+        id.to_params(&mut rqp, "pid", "path");
         self.hd
             .client
-            .request(Method::GET, u, &rp, p)
+            .request(Method::GET, u, &rqp, p)
             .await?
             .go()
             .await

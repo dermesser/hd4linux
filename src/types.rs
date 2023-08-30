@@ -128,6 +128,29 @@ impl Display for ApiError {
     }
 }
 
+/// An identifier of a file or directory.
+#[derive(Debug, Clone)]
+pub enum Identifier {
+    /// A file or directory ID.
+    Id(String),
+    /// A path.
+    Path(String),
+    /// A `path` relative to a directory `id`.
+    Relative { id: String, path: String },
+}
+
+impl Identifier {
+    pub fn to_params<S: AsRef<str>>(&self, p: &mut Params, id_parameter: S, path_parameter: S) {
+        match self {
+            Identifier::Id(ref s) => p.add_str(id_parameter.as_ref(), s),
+            Identifier::Path(ref s) => p.add_str(path_parameter.as_ref(), s),
+            Identifier::Relative { ref id, ref path } => p
+                .add_str(id_parameter.as_ref(), id)
+                .add_str(path_parameter.as_ref(), path),
+        };
+    }
+}
+
 impl std::error::Error for ApiError {}
 
 #[derive(Debug, Default, Serialize, Deserialize)]

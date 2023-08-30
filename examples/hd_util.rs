@@ -4,8 +4,8 @@ use serde_json::to_string_pretty;
 
 use std::path::Path;
 
-use hd_api::Params;
 use hd_api::{hidrive, oauth2};
+use hd_api::{Identifier, Params};
 
 #[derive(Subcommand)]
 enum Commands {
@@ -41,9 +41,11 @@ async fn delete_file(
     home: Home,
     file: impl AsRef<str>,
 ) -> anyhow::Result<()> {
-    let mut p = Params::new();
-    p.add_str("pid", home.id).add_str("path", file.as_ref());
-    u.delete(Some(&p)).await
+    let id = Identifier::Relative {
+        id: home.id,
+        path: file.as_ref().to_string(),
+    };
+    u.delete(id, None).await
 }
 
 async fn list_files(
@@ -52,16 +54,16 @@ async fn list_files(
     folder: impl AsRef<str>,
 ) -> anyhow::Result<()> {
     let mut p = Params::new();
-    // To do: first obtain user name.
-    let path = folder.as_ref().to_string();
-    p.add_str("path", path)
-        .add_str(
-            "fields",
-            "name,id,parent_id,nmembers,type,members,readable,writable,size,members.size,members.chash",
-        )
-        .add_str("pid", home.id);
+    p.add_str(
+        "fields",
+        "name,id,parent_id,nmembers,type,members,readable,writable,size,members.size,members.chash",
+    );
+    let id = Identifier::Relative {
+        id: home.id,
+        path: folder.as_ref().to_string(),
+    };
     info!(target: "get_file", "Checking directory...");
-    let dir = u.get_dir(Some(&p)).await?;
+    let dir = u.get_dir(id, None).await?;
     println!(
         "{}",
         to_string_pretty(&dir).expect("json: to_string_pretty")
@@ -76,9 +78,6 @@ async fn get_file(
     file: impl AsRef<str>,
 ) -> anyhow::Result<()> {
     let path = file.as_ref();
-    let mut p = Params::new();
-    p.add_str("path", path).add_str("pid", home.id);
-
     let basename = Path::new(&path)
         .file_name()
         .expect("file name to string")
@@ -87,7 +86,11 @@ async fn get_file(
     let dst_file = tokio::fs::File::create(basename)
         .await
         .expect("open output file");
-    let n = u.get(dst_file, Some(&p)).await?;
+    let id = Identifier::Relative {
+        id: home.id.clone(),
+        path: path.to_string(),
+    };
+    let n = u.get(id, dst_file, None).await?;
     println!("Downloaded {} bytes.", n);
 
     Ok(())
@@ -106,12 +109,17 @@ async fn put_file(
         .await
         .expect("open local file for reading");
 
-    let mut p = Params::new();
-    p.add_str("dir_id", home.id).add_str("dir", path).add_str(
-        "name",
-        Path::new(filename).file_name().unwrap().to_str().unwrap(),
-    );
-    u.upload(file, Some(&p)).await.expect("upload failed");
+    u.upload(
+        Identifier::Relative {
+            id: home.id.to_string(),
+            path: path.to_string(),
+        },
+        filename,
+        file,
+        None,
+    )
+    .await
+    .expect("upload failed");
 
     Ok(())
 }

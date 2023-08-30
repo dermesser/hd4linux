@@ -1,6 +1,6 @@
 use anyhow::{Context, Error, Result};
 use futures_util::StreamExt;
-use log::{info, warn};
+use log::{error, info, warn};
 use reqwest::header::{HeaderName, HeaderValue};
 use reqwest::RequestBuilder;
 use serde::{de::DeserializeOwned, Serialize};
@@ -24,8 +24,9 @@ async fn read_body_to_json<RT: Default + DeserializeOwned + ?Sized>(
         }
     } else {
         let body = rp.text().await?;
+        warn!(target: "hd_api::http", "Received HTTP error {}: with body {}", status, body);
         let e: ApiError = serde_json::from_reader(body.as_bytes())?;
-        warn!(target: "hd_api::http", "Received HTTP error {}: {:?}", status, e);
+        error!(target: "hd_api::http", "ApiError is {:?}", e);
         Err(Error::new(e))
     }
 }
