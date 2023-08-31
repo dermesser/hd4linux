@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use log::info;
+use serde_json::to_string_pretty;
 
 use std::path::Path;
 
@@ -15,6 +16,8 @@ enum Commands {
     Mvfile { from: String, to: String },
     Thumbnail { path: String },
     Url { path: String },
+    Metadata { path: String },
+    Search { term: String },
 }
 
 #[derive(Parser)]
@@ -132,7 +135,7 @@ async fn url(
     home: Home,
     file: impl AsRef<str>,
 ) -> anyhow::Result<()> {
-    let u = u
+    let url = u
         .url(
             Identifier::Relative {
                 id: home.id,
@@ -141,7 +144,40 @@ async fn url(
             None,
         )
         .await?;
-    println!("{}", u.url);
+    println!("{}", url.url);
+    Ok(())
+}
+
+async fn metadata(
+    mut u: hidrive::HiDriveFiles<'_>,
+    home: Home,
+    file: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let it = u
+        .metadata(
+            Identifier::Relative {
+                id: home.id,
+                path: file.as_ref().to_string(),
+            },
+            "path,name,chash,nhash,mhash,mohash,teamfolder,rshare,members,nmembers,id,parent_id,ctime,has_dirs,mtime,readable,size,type,writable",
+            None,
+        )
+        .await?;
+    println!("{}", to_string_pretty(&it)?);
+    Ok(())
+}
+
+async fn search(
+    mut u: hidrive::HiDriveFiles<'_>,
+    home: Home,
+    term: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let mut p = Params::new();
+    p.add_str("pattern", term);
+    let it = u.search(Identifier::Id(home.id), "", Some(&p)).await?;
+    for i in it.iter() {
+        println!("{}", i.path);
+    }
     Ok(())
 }
 
@@ -233,5 +269,7 @@ async fn main() {
         }
         Commands::Thumbnail { path } => thumbnail(hd.files(), home, path).await.expect("thumbnail"),
         Commands::Url { path } => url(hd.files(), home, path).await.expect("url"),
+        Commands::Metadata { path } => metadata(hd.files(), home, path).await.expect("metadata"),
+        Commands::Search { term } => search(hd.files(), home, term).await.expect("search"),
     }
 }

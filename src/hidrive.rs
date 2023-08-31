@@ -341,6 +341,47 @@ impl<'a> HiDriveFiles<'a> {
             .await
     }
 
+    /// Return metadata. Specify fields to return.
+    pub async fn metadata(
+        &mut self,
+        id: Identifier,
+        fields: impl AsRef<str>,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/meta", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
+        rqp.add_str("fields", fields);
+        self.hd
+            .client
+            .request(Method::GET, u, &rqp, p)
+            .await?
+            .go()
+            .await
+    }
+
+    pub async fn search(
+        &mut self,
+        root: Identifier,
+        fields: impl AsRef<str>,
+        p: Option<&Params>,
+    ) -> Result<Vec<Item>> {
+        let u = format!("{}/search", self.hd.base_url);
+        let mut rqp = Params::new();
+        root.to_params(&mut rqp, "pid", "path");
+        if !fields.as_ref().is_empty() {
+            rqp.add_str("fields", fields);
+        }
+        let r: SearchResult = self
+            .hd
+            .client
+            .request(Method::GET, u, &rqp, p)
+            .await?
+            .go()
+            .await?;
+        Ok(r.result)
+    }
+
     /// Return metadata for directory.
     ///
     /// Specify either `pid` or `path`, or the request will fail.

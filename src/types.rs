@@ -292,3 +292,9 @@ pub struct User {
 pub struct Url {
     pub url: String,
 }
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchResult {
+    pub result: Vec<Item>,
+}
