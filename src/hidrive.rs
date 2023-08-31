@@ -222,6 +222,26 @@ impl<'a> HiDriveFiles<'a> {
             .await
     }
 
+    /// Truncate a file to the specified size. If `size` is greater than the current size, a sparse
+    /// file is created.
+    pub async fn truncate(
+        &mut self,
+        id: Identifier,
+        size: usize,
+        p: Option<&Params>,
+    ) -> Result<Item> {
+        let u = format!("{}/file/truncate", self.hd.base_url);
+        let mut rqp = Params::new();
+        rqp.add_uint("size", size);
+        id.to_params(&mut rqp, "pid", "path");
+        self.hd
+            .client
+            .request(Method::POST, u, &rqp, p)
+            .await?
+            .go()
+            .await
+    }
+
     /// Copy file.
     ///
     /// Copy from `src` to `dst`. `dst` must be `Path` or `Relative`.
@@ -458,13 +478,13 @@ impl<'a> HiDriveFiles<'a> {
     pub async fn hash(
         &mut self,
         id: Identifier,
-        level: isize,
+        level: usize,
         ranges: &[(usize, usize)],
         p: Option<&Params>,
     ) -> Result<FileHash> {
         let u = format!("{}/file/hash", self.hd.base_url);
         let mut rqp = Params::new();
-        rqp.add_int("level", level);
+        rqp.add_uint("level", level);
         id.to_params(&mut rqp, "pid", "path");
         if ranges.is_empty() {
             rqp.add_str("ranges", "-");
