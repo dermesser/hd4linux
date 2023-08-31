@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use log::info;
-use serde_json::to_string_pretty;
 
 use std::path::Path;
 
@@ -15,6 +14,7 @@ enum Commands {
     Put { file: String, folder: String },
     Mvfile { from: String, to: String },
     Thumbnail { path: String },
+    Url { path: String },
 }
 
 #[derive(Parser)]
@@ -23,6 +23,7 @@ struct Args {
     command: Commands,
 }
 
+#[allow(dead_code)]
 struct Home {
     path: String,
     id: String,
@@ -126,6 +127,24 @@ async fn get_file(
     Ok(())
 }
 
+async fn url(
+    mut u: hidrive::HiDriveFiles<'_>,
+    home: Home,
+    file: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let u = u
+        .url(
+            Identifier::Relative {
+                id: home.id,
+                path: file.as_ref().to_string(),
+            },
+            None,
+        )
+        .await?;
+    println!("{}", u.url);
+    Ok(())
+}
+
 async fn thumbnail(
     mut u: hidrive::HiDriveFiles<'_>,
     home: Home,
@@ -213,5 +232,6 @@ async fn main() {
             mv_file(hd.files(), home, from, to).await.expect("mv_file")
         }
         Commands::Thumbnail { path } => thumbnail(hd.files(), home, path).await.expect("thumbnail"),
+        Commands::Url { path } => url(hd.files(), home, path).await.expect("url"),
     }
 }

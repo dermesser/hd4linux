@@ -277,3 +277,9 @@ pub struct User {
     pub home_id: String,
     pub folder: Item,
 }
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Url {
+    pub url: String,
+}

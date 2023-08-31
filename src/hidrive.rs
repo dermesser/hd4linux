@@ -81,7 +81,7 @@ pub struct HiDrivePermission<'a> {
 }
 
 impl<'a> HiDrivePermission<'a> {
-    /// GET /2.1/permission
+    /// GET /permission
     ///
     /// Optional parameters: `pid, account, fields`.
     pub async fn get_permission(
@@ -100,7 +100,7 @@ impl<'a> HiDrivePermission<'a> {
             .await
     }
 
-    /// PUT /2.1/permission
+    /// PUT /permission
     ///
     /// Optional parameters: `pid, account, invite_id, readable, writable` for P.
     pub async fn set_permission(
@@ -151,6 +151,20 @@ impl<'a> HiDriveFiles<'a> {
             .request(Method::GET, u, &rqp, p)
             .await?
             .download_file(out)
+            .await
+    }
+
+    /// Obtain a public URL valid for 6 hours.
+    ///
+    pub async fn url(&mut self, id: Identifier, p: Option<&Params>) -> Result<Url> {
+        let u = format!("{}/file/url", self.hd.base_url);
+        let mut rqp = Params::new();
+        id.to_params(&mut rqp, "pid", "path");
+        self.hd
+            .client
+            .request(Method::GET, u, &rqp, p)
+            .await?
+            .go()
             .await
     }
 

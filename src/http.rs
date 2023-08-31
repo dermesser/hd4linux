@@ -89,11 +89,18 @@ impl Client {
     }
 }
 
+#[allow(unused)]
 impl Request {
     pub async fn go<RT: Default + DeserializeOwned + ?Sized>(self) -> Result<RT> {
         info!(target: "hd_api::http", "sending http request: {:?}", self.rqb);
         let resp = self.rqb.send().await?;
         read_body_to_json(resp).await
+    }
+
+    pub async fn go_raw(self) -> Result<String> {
+        info!(target: "hd_api::http", "sending http request: {:?}", self.rqb);
+        let resp = self.rqb.send().await?;
+        Ok(resp.text().await?)
     }
 
     pub async fn download_file<W: AsyncWrite + Unpin>(self, dst: W) -> Result<usize> {
