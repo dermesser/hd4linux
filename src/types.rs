@@ -12,6 +12,7 @@ pub enum ParamValue {
     String(String),
     Bool(bool),
     Int(isize),
+    UInt(usize),
 }
 
 impl Display for ParamValue {
@@ -20,6 +21,7 @@ impl Display for ParamValue {
             ParamValue::String(ref s) => s.fmt(f),
             ParamValue::Bool(b) => b.fmt(f),
             ParamValue::Int(u) => u.fmt(f),
+            ParamValue::UInt(u) => u.fmt(f),
         }
     }
 }
@@ -86,6 +88,13 @@ impl Params {
         self.p.push_back(Param {
             name: k.as_ref().into(),
             val: ParamValue::Int(v),
+        });
+        self
+    }
+    pub fn add_uint<S: AsRef<str>>(&mut self, k: S, v: usize) -> &mut Self {
+        self.p.push_back(Param {
+            name: k.as_ref().into(),
+            val: ParamValue::UInt(v),
         });
         self
     }
