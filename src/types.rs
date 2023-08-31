@@ -122,6 +122,8 @@ pub struct ApiError {
     pub auth: Option<String>,
 }
 
+impl std::error::Error for ApiError {}
+
 impl Display for ApiError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if self.auth.is_none() {
@@ -159,8 +161,6 @@ impl Identifier {
         };
     }
 }
-
-impl std::error::Error for ApiError {}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]

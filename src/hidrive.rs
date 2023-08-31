@@ -9,7 +9,7 @@ use crate::http::Client;
 use crate::oauth2;
 use crate::types::*;
 
-use anyhow::{self, Result};
+use anyhow::{self, Context, Result};
 use hyper::Method;
 use reqwest;
 use tokio::io::AsyncWrite;
@@ -72,6 +72,7 @@ impl<'a> HiDriveUser<'a> {
             .await?
             .go()
             .await
+            .context("/user/me")
     }
 }
 
@@ -98,6 +99,7 @@ impl<'a> HiDrivePermission<'a> {
             .await?
             .go()
             .await
+            .context("/permission")
     }
 
     /// PUT /permission
@@ -117,6 +119,7 @@ impl<'a> HiDrivePermission<'a> {
             .await?
             .go()
             .await
+            .context("/permission")
     }
 }
 
@@ -152,6 +155,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .download_file(out)
             .await
+            .context("GET /file")
     }
 
     /// Obtain a public URL valid for 6 hours.
@@ -166,6 +170,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/url")
     }
 
     /// Upload a file (max. 2 gigabytes). Specify either `dir_id`, `dir`, or both; in the latter
@@ -213,6 +218,8 @@ impl<'a> HiDriveFiles<'a> {
         let mut rqp = Params::new();
         id.to_params(&mut rqp, "dir_id", "dir");
         rqp.add_str("name", name.as_ref());
+        let method_ = method.clone();
+        let ctx = || format!("{} /file", method_);
         self.hd
             .client
             .request(method, u, &rqp, p)
@@ -220,6 +227,7 @@ impl<'a> HiDriveFiles<'a> {
             .set_attachment(src)
             .go()
             .await
+            .with_context(ctx)
     }
 
     /// Truncate a file to the specified size. If `size` is greater than the current size, a sparse
@@ -240,6 +248,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/truncate")
     }
 
     /// Copy file.
@@ -263,6 +272,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/copy")
     }
 
     /// Move file.
@@ -284,6 +294,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/move")
     }
 
     /// Rename operation.
@@ -306,6 +317,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/rename")
     }
 
     /// Delete file.
@@ -319,6 +331,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("DELETE /file")
     }
 
     /// Download a thumbnail.
@@ -339,6 +352,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .download_file(dst)
             .await
+            .context("/file/thumbnail")
     }
 
     /// Return metadata. Specify fields to return.
@@ -358,6 +372,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/meta")
     }
 
     pub async fn search(
@@ -378,7 +393,8 @@ impl<'a> HiDriveFiles<'a> {
             .request(Method::GET, u, &rqp, p)
             .await?
             .go()
-            .await?;
+            .await
+            .context("/search")?;
         Ok(r.result)
     }
 
@@ -397,6 +413,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("GET /dir")
     }
 
     /// Return metadata for home directory.
@@ -410,6 +427,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/dir/home")
     }
 
     /// Create directory.
@@ -427,6 +445,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("POST /dir")
     }
 
     /// Remove directory.
@@ -442,6 +461,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("DELETE /dir")
     }
 
     /// Copy directory. `to` must be `Relative` or `Path`.
@@ -464,6 +484,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/dir/copy")
     }
 
     /// Move directory.
@@ -486,6 +507,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/dir/move")
     }
 
     /// Rename directory.
@@ -508,6 +530,7 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/dir/rename")
     }
 
     /// Get file or directory hash.
@@ -542,5 +565,6 @@ impl<'a> HiDriveFiles<'a> {
             .await?
             .go()
             .await
+            .context("/file/hash")
     }
 }
