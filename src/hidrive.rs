@@ -10,9 +10,11 @@ use crate::oauth2;
 use crate::types::*;
 
 use anyhow::{self, Context, Result};
+use futures_util::StreamExt;
 use hyper::Method;
 use reqwest;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_tungstenite::tungstenite::protocol::Message;
 
 pub const NO_BODY: Option<reqwest::Body> = None;
 /// Use this if you don't want to supply options to a method. This prevents type errors due to
@@ -20,6 +22,7 @@ pub const NO_BODY: Option<reqwest::Body> = None;
 pub const NO_PARAMS: Option<&Params> = None;
 
 const DEFAULT_API_BASE_URL: &str = "https://api.hidrive.strato.com/2.1";
+const DEFAULT_WS_BASE_URL: &str = "wss://api.hidrive.strato.com/2.1/subscribe";
 
 /// The HiDrive API hub.
 ///
@@ -51,6 +54,44 @@ impl HiDrive {
 
     pub fn files(&mut self) -> HiDriveFiles<'_> {
         HiDriveFiles { hd: self }
+    }
+
+    pub async fn notifications(&mut self) -> Result<HiDriveNotifications<'_, SecureWSStream>> {
+        HiDriveNotifications::new(self, DEFAULT_WS_BASE_URL).await
+    }
+}
+
+pub struct HiDriveNotifications<'a, S> {
+    hd: &'a mut HiDrive,
+    stream: tokio_tungstenite::WebSocketStream<S>,
+}
+
+type SecureWSStream = tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>;
+impl HiDriveNotifications<'_, SecureWSStream> {
+    async fn new(
+        hd: &mut HiDrive,
+        url: impl AsRef<str>,
+    ) -> Result<HiDriveNotifications<'_, SecureWSStream>> {
+        tokio_tungstenite::connect_async(url.as_ref())
+            .await
+            .map_err(|e| e.into())
+            .map(|(stream, _resp)| HiDriveNotifications { hd, stream })
+    }
+}
+
+impl<S: AsyncRead + AsyncWrite + Unpin> HiDriveNotifications<'_, S> {
+    async fn next(&mut self) -> Result<Option<WebsocketNotification>> {
+        loop {
+            if let Some(message) = self.stream.next().await {
+                match message? {
+                    Message::Text(s) => return Ok(serde_json::from_str(s.as_str())?),
+                    Message::Close(_) => return Ok(None),
+                    _ => continue,
+                }
+            } else {
+                return Ok(None);
+            }
+        }
     }
 }
 
