@@ -298,3 +298,23 @@ pub struct Url {
 pub struct SearchResult {
     pub result: Vec<Item>,
 }
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebsocketArgs {
+    code: Option<String>,
+    event: Option<String>,
+    id: Option<usize>,
+    pid: Option<String>,
+    recursive: Option<bool>,
+    subs_id: Option<usize>,
+    tld_chash: Option<String>,
+    tld_mhash: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebsocketNotification {
+    name: String,
+    args: WebsocketArgs,
+}
