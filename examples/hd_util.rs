@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use log::info;
 use serde_json::to_string_pretty;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use std::path::Path;
 
@@ -18,6 +19,7 @@ enum Commands {
     Url { path: String },
     Metadata { path: String },
     Search { term: String },
+    Listen { },
 }
 
 #[derive(Parser)]
@@ -40,6 +42,13 @@ async fn list_me(mut u: hidrive::HiDriveUser<'_>) -> anyhow::Result<Home> {
         path: me.home,
         id: me.home_id,
     })
+}
+
+async fn listen<S: AsyncRead+AsyncWrite+Unpin>(mut u: hidrive::HiDriveNotifications<'_, S>) -> anyhow::Result<()> {
+    while let Ok(Some(it)) = u.next().await {
+        println!("{}", to_string_pretty(&it)?);
+    }
+    Ok(())
 }
 
 async fn delete_file(
@@ -271,5 +280,6 @@ async fn main() {
         Commands::Url { path } => url(hd.files(), home, path).await.expect("url"),
         Commands::Metadata { path } => metadata(hd.files(), home, path).await.expect("metadata"),
         Commands::Search { term } => search(hd.files(), home, term).await.expect("search"),
+        Commands::Listen { } => listen(hd.notifications().await.expect("notifications")).await.expect("listen"),
     }
 }

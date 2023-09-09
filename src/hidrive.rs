@@ -12,6 +12,7 @@ use crate::types::*;
 use anyhow::{self, Context, Result};
 use futures_util::StreamExt;
 use hyper::Method;
+use log::info;
 use reqwest;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::tungstenite::protocol::Message;
@@ -72,7 +73,9 @@ impl HiDriveNotifications<'_, SecureWSStream> {
         hd: &mut HiDrive,
         url: impl AsRef<str>,
     ) -> Result<HiDriveNotifications<'_, SecureWSStream>> {
-        tokio_tungstenite::connect_async(url.as_ref())
+        let url = format!("{}?access_token={}", url.as_ref(), hd.client.access_token().await?);
+        info!(target: "hd_api::hidrive", "requesting WSS connection to {}", url);
+        tokio_tungstenite::connect_async(url)
             .await
             .map_err(|e| e.into())
             .map(|(stream, _resp)| HiDriveNotifications { hd, stream })
@@ -80,7 +83,7 @@ impl HiDriveNotifications<'_, SecureWSStream> {
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> HiDriveNotifications<'_, S> {
-    async fn next(&mut self) -> Result<Option<WebsocketNotification>> {
+    pub async fn next(&mut self) -> Result<Option<WebsocketNotification>> {
         loop {
             if let Some(message) = self.stream.next().await {
                 match message? {

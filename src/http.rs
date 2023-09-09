@@ -87,6 +87,10 @@ impl Client {
         };
         Ok(Request { rqb })
     }
+
+    pub async fn access_token(&mut self) -> Result<String> {
+        self.authz.token().await
+    }
 }
 
 #[allow(unused)]
