@@ -1,9 +1,10 @@
-# `hd4linux`
+# `hd_api`
 
 Access Strato's HiDrive via the REST API.
 
 This is an API client for Strato's HiDrive. It allows you to access your HiDrive account via the
-REST API, and includes a custom OAuth client allowing for user-friendly authentication.
+REST API, and includes a custom OAuth client allowing for user-friendly authentication. The REST API
+is documented on [developer.hidrive.com](https://developer.hidrive.com/).
 
 Currently this package is not yet published on crates.io, because important functionality -
 notification of changes in the HiDrive account - is still missing. The reason is that this part of
